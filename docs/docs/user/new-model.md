@@ -5,7 +5,7 @@ Models are executed in **separate environments** to avoid dependency conflicts a
 
 
 You need to install the app locally because it requires code adjustments to make your custom model pipeline work. 
-[↪️ Go to Developer Guide > Setup & Run](../../dev/setup.md)
+[↪️ Go to Developer Guide > Setup & Run](../dev/setup.md)
 
 ---
 
