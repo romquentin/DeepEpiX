@@ -32,12 +32,9 @@ The app is structured around **pages**, **layout** and **callbacks**.
 
 
 ## 📖 Docs Navigation
-
-- [📦 Folder Structure](structure.md)
-- [🧩 Page: Preprocessing](pages/preprocessing.md)
-- [📊 Page: PSD](pages/psd.md)
-- [🔄 Callback Glossary](callbacks/index.md)
+- [🐋 Fast Installation](install.md)
 - [👨‍💻 Developer Setup](dev/setup.md)
+- [🧩 First Tuto](dev/user-dataset.md)
 
 ---
 
