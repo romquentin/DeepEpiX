@@ -24,8 +24,8 @@ def register_handle_frequency_parameters():
         resample_freq, high_pass_freq, low_pass_freq, notch_freq
     ):
         """Retrieve frequency parameters and store them."""
-        if not low_pass_freq or not high_pass_freq or not notch_freq:
-            return "⚠️ Please fill in all frequency parameters."
+        if not low_pass_freq or not high_pass_freq:
+            return "⚠️ Please fill high and low pass frequency parameters."
 
         elif high_pass_freq >= low_pass_freq:
             return "⚠️ High-pass frequency must be less than low-pass frequency."
