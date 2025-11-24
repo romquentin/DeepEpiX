@@ -46,9 +46,10 @@ def sort_filter_resample(data_path, freq_data, channels_dict):
     notch_freq = freq_data.get("notch_freq")
 
     # Apply filtering and resampling
-    raw.filter(l_freq=high_pass_freq, h_freq=low_pass_freq, n_jobs=8)
-    raw.notch_filter(freqs=notch_freq)
-    raw.resample(resample_freq)
+    raw.filter(l_freq=high_pass_freq, h_freq=low_pass_freq, n_jobs=-1)
+    if notch_freq:
+        raw.notch_filter(freqs=notch_freq, n_jobs=-1)
+    raw.resample(resample_freq, n_jobs=-1)
 
     # raw.rename_channels({ch['ch_name']: ch['ch_name'].split('-')[0] for ch in raw.info['chs']})
 
@@ -219,10 +220,11 @@ def compute_power_spectrum_decomposition(data_path, freq_data, theme="light"):
     high_pass_freq = freq_data.get("high_pass_freq")
     notch_freq = freq_data.get("notch_freq")
 
-    if not low_pass_freq or not high_pass_freq or not notch_freq:
+    if not low_pass_freq or not high_pass_freq:
         return dash.no_update
 
-    raw.notch_filter(freqs=notch_freq)
+    if notch_freq:
+        raw.notch_filter(freqs=notch_freq)
 
     psd_data = raw.compute_psd(
         method="welch",
