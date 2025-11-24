@@ -33,9 +33,8 @@ def register_display_psd():
             resample_freq,
             high_pass_freq,
             low_pass_freq,
-            notch_freq,
         ):
-            return "⚠️ Please fill in all frequency parameters."
+            return "⚠️ Please fill in high and low frequency parameters."
 
         if n_clicks > 0:
             freq_data = {
