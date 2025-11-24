@@ -3,12 +3,13 @@ import config
 from dash import Dash, html, dcc, page_container, Input, Output
 import dash_bootstrap_components as dbc
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--data_dir", default=config.DATA_DIR, help="Path to data directory"
-)
-args = parser.parse_args()
-config.DATA_DIR = args.data_dir
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data_dir", default=config.DATA_DIR, help="Path to data directory"
+    )
+    args = parser.parse_args()
+    config.DATA_DIR = args.data_dir
 
 app = Dash(
     __name__,
