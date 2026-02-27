@@ -14,6 +14,7 @@ def register_compute_ica():
         Output("compute-ica-button", "n_clicks"),
         Output("ica-store", "data"),
         Output("history-store", "data", allow_duplicate=True),
+        Output("ica-components-selection", "options"),
         Input("compute-ica-button", "n_clicks"),
         State("data-path-store", "data"),
         State("chunk-limits-store", "data"),
@@ -43,16 +44,16 @@ def register_compute_ica():
         """Update ICA signal visualization."""
 
         if n_clicks == 0:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         # Validation: Check if all required fields are filled
         if not data_path:
             error_message = "⚠️ Please choose a subject to display on Home page."
-            return error_message, dash.no_update, dash.no_update, dash.no_update
+            return error_message, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         if not chunk_limits:
             error_message = "⚠️ You have a subject in memory but its recording has not been preprocessed yet. Please go back on Home page to reprocess the signal."
-            return error_message, dash.no_update, dash.no_update, dash.no_update
+            return error_message, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         missing_fields = []
         if not n_components:
@@ -78,7 +79,8 @@ def register_compute_ica():
             cache_dir / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica.fif"
         )
         if ica_result_path.exists() and str(ica_result_path) in ica_store:
-            return "✅ Reusing existing ICA results", 0, dash.no_update, dash.no_update
+            options = [{"label": f"ICA {i}", "value": i} for i in range(n_components)]
+            return "✅ Reusing existing ICA results", 0, dash.no_update, dash.no_update, options
 
         raw = dpu.read_raw(
             data_path,
@@ -97,6 +99,8 @@ def register_compute_ica():
         ica.fit(raw, decim=decim)
         ica.save(ica_result_path, overwrite=True)
 
+        new_options = [{"label": f"ICA {i:02d}", "value": i} for i in range(ica.n_components_)]
+
         for chunk_idx in chunk_limits:
             start_time, end_time = chunk_idx
             pu.get_ica_dataframe_dask(
@@ -107,7 +111,7 @@ def register_compute_ica():
 
         action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
         history_data = hu.fill_history_data(history_data, "ICA", action)
-        return None, 0, ica_store, history_data
+        return None, 0, ica_store, history_data, new_options
 
 
 def register_fill_ica_results(ica_result_radio_id):

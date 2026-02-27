@@ -221,6 +221,7 @@ def generate_graph_time_ica(
     ica_result_path,
     color_selection,
     xaxis_range,
+    excluded_indices
 ):
     """Handles the preprocessing and figure generation for the M/EEG signal visualization."""
     import time  # For logging execution times
@@ -284,10 +285,18 @@ def generate_graph_time_ica(
     fig = go.Figure()
 
     for col in shifted_filtered_raw_df.columns[:-1]:  # Exclude Time
+        try:
+            col_idx = int(col.replace("ICA", ""))
+        except (ValueError, TypeError):
+            col_idx = None
+
+        opacity = 0.2 if (excluded_indices and col_idx in excluded_indices) else 1.0
+        
         fig.add_trace(
             go.Scattergl(
                 x=shifted_filtered_raw_df["Time"],
                 y=shifted_filtered_raw_df[col],
+                opacity=opacity,
                 mode="lines",
                 name=col,
                 line=dict(color=color_map.get(col, None), width=1),

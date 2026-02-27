@@ -159,6 +159,7 @@ def register_update_graph_ica(ica_result_radio_id):
         Output("python-error-ica", "children"),
         Input("update-button-ica", "n_clicks"),
         Input("page-selector-ica", "value"),
+        Input("ica-components-selection", "value"),
         State(ica_result_radio_id, "value"),
         State("data-path-store", "data"),
         State("offset-display-ica", "value"),
@@ -174,6 +175,7 @@ def register_update_graph_ica(ica_result_radio_id):
     def _update_graph_ica(
         n_clicks,
         page_selection,
+        excluded_indices,
         ica_result_path,
         data_path,
         offset_selection,
@@ -219,6 +221,7 @@ def register_update_graph_ica(ica_result_radio_id):
                 ica_result_path,
                 color_selection,
                 xaxis_range,
+                excluded_indices,
             )
 
             return fig, error

@@ -346,6 +346,37 @@ def create_selection(
             html.Div(
                 [
                     html.Label(
+                        "Select ICA components to remove:",
+                        style={
+                            "fontWeight": "bold",
+                            "fontSize": "14px",
+                            "marginBottom": "8px",
+                        },
+                    ),
+                    dcc.Checklist(
+                        id="ica-components-selection",
+                        options=[], 
+                        value=[],
+                        inline=False,
+                        persistence=True,
+                        persistence_type="session",
+                    ),
+                    dbc.Button(
+                        "Apply Exclusion",
+                        id="apply-ica-exclusion-button",
+                        color="danger",
+                        outline=True,
+                        size="sm",
+                        n_clicks=0,
+                        style=BUTTON_STYLES["big"],
+                    ),
+                    html.Div(id="exclusion-status", style={"marginTop": "10px"})
+                ],
+                style=BOX_STYLES["classic"],
+            ),
+            html.Div(
+                [
+                    html.Label(
                         "Select Colors:",
                         style={
                             "fontWeight": "bold",

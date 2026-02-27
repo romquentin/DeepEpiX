@@ -1,4 +1,4 @@
-from dash import Input, Output, callback, html
+from dash import Input, Output, State, callback, html
 import dash_bootstrap_components as dbc
 from callbacks.utils import history_utils as hu
 
@@ -66,3 +66,21 @@ def register_update_ica_history():
                 )
             ]
         )
+
+def register_restore_ica_channels():
+    @callback(
+        Output("ica-components-selection", "options"),
+        Input("sidebar-tabs-ica", "active_tab"),
+        Input("ica-store", "data"),
+        State("n-components", "value"),
+        prevent_initial_call=False,
+    )
+    def restore_channels(active_tab, ica_store_data, n_components):
+        if not ica_store_data:
+            return []
+
+        options = [
+            {"label": f"ICA {i:03d}", "value": i} 
+            for i in range(n_components)
+        ]
+        return options
