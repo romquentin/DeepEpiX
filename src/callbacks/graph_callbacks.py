@@ -25,6 +25,7 @@ def register_update_graph_raw_signal():
         State("montage-store", "data"),
         State("channel-store", "data"),
         State("sensitivity-analysis-store", "data"),
+        State("history-store", "data"),
         running=[(Output("update-button", "disabled"), True, False)],
         prevent_initial_call=True,
     )
@@ -42,6 +43,7 @@ def register_update_graph_raw_signal():
         montage_store,
         channel_store,
         sensitivity_analysis_store,
+        history_data,
     ):
         """Update M/EEG signal visualization based on time and channel selection."""
 
@@ -122,6 +124,8 @@ def register_update_graph_raw_signal():
             except KeyError:
                 return dash.no_update, "No color selected for graph traces.", ERROR
 
+        excluded_ica = (history_data or {}).get("excluded_ica_components", [])
+
         try:
             fig, error, error_style = gu.generate_graph_time_channel(
                 selected_channels,
@@ -133,6 +137,7 @@ def register_update_graph_raw_signal():
                 xaxis_range,
                 channel_store,
                 filter,
+                excluded_ica_components=excluded_ica,
             )
 
             return fig, error, error_style

@@ -72,45 +72,91 @@ def register_compute_ica():
                 error_message,
                 dash.no_update,
                 dash.no_update,
+                dash.no_update,
             )
 
-        cache_dir = config.CACHE_DIR
-        ica_result_path = (
-            cache_dir / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica.fif"
-        )
-        if ica_result_path.exists() and str(ica_result_path) in ica_store:
-            return "✅ Reusing existing ICA results", 0, dash.no_update, dash.no_update
-        raw = dpu.read_raw(
-            data_path,
-            preload=True,
-            verbose=False,
-            bad_channels=channel_store.get("bad", []),
-        ).pick_types(meg=True)
-        raw = raw.filter(l_freq=1.0, h_freq=None)
-
-        ica = mne.preprocessing.ICA(
-            n_components=n_components,
-            method=ica_method,
-            max_iter=max_iter,
-            random_state=97,
-        )
-        ica.fit(raw, decim=decim)
-        ica.save(ica_result_path, overwrite=True)
-
-        ica_store = [str(ica_result_path)]
-
-        for chunk_idx in chunk_limits:
-            start_time, end_time = chunk_idx
-            pu.get_ica_dataframe_dask(
-                data_path, start_time, end_time, ica_result_path, raw
+        try: 
+            ica_path, is_from_cache, n_components = pu.run_ica_processing(
+                data_path, n_components, ica_method, max_iter, decim, 
+                channel_store, config.CACHE_DIR, ica_store
             )
 
-        ica_store = [str(ica_result_path)]
+            status_msg = "✅ Reusing existing ICA results" if is_from_cache else "✅ Calcul ICA terminé"
 
-        action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
-        history_data = hu.fill_history_data(history_data, "ICA", action, n_components=ica.n_components_)
-        history_data["excluded_ica_components"] = []
-        return None, 0, ica_store, history_data
+            for start_time, end_time in chunk_limits:
+                pu.get_ica_dataframe_dask(data_path, start_time, end_time, ica_path)
+
+            action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
+            history_data = hu.fill_history_data(history_data, "ICA", action, n_components)
+            history_data["excluded_ica_components"] = []
+
+            return status_msg, 0, [str(ica_path)], history_data
+
+        except Exception as e:
+            return f"Erreur : {str(e)}", dash.no_update, dash.no_update, dash.no_update
+
+def register_apply_ica_exclusion():
+    @callback(
+        Output("history-store", "data", allow_duplicate=True),
+        Output("exclusion-status", "children"),
+        Output("ica-components-selection", "value"),
+        Input("apply-ica-exclusion-button", "n_clicks"),
+        State("ica-components-selection", "value"),
+        State("history-store", "data"),
+        State("data-path-store", "data"),
+        State("chunk-limits-store", "data"),
+        State("ica-result-radio", "value"),
+        State("frequency-store", "data"),
+        State("channel-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _apply_ica_exclusion(
+        n_clicks, selected, history_data, data_path, 
+        chunk_limits, ica_result_path, freq_data, channel_store):
+
+        if not ica_result_path:
+            return dash.no_update, dbc.Alert("No ICA result selected.", color="warning"), []
+        
+        if not n_clicks:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        if not selected:
+            return (
+                dash.no_update,
+                dbc.Alert("No components selected.", color="warning", duration=3000),
+                [],
+            )
+    
+        history_data = history_data or {}
+        already_excluded = set(history_data.get("excluded_ica_components", []))
+        all_excluded = sorted(already_excluded | set(selected))
+
+        prep_raw = pu.sort_filter_resample(data_path, freq_data, channel_store)
+
+        for start_time, end_time in chunk_limits:
+            
+            pu.get_ica_cleaned_dataframe_dask(
+                data_path,
+                freq_data,
+                start_time,
+                end_time,
+                ica_result_path,
+                all_excluded,
+                prep_raw,
+            )
+
+        history_data["excluded_ica_components"] = all_excluded
+        action = f"Excluded ICA components {all_excluded} from signal.\n"
+        history_data = hu.fill_history_data(history_data, "ICA", action)
+
+        status = dbc.Alert(
+            f"{len(all_excluded)} component(s) permanently excluded "
+            f"({len(all_excluded) - len(already_excluded)} new).",
+            color="danger",
+            duration=4000,
+        )
+
+        return history_data, status, []
 
 
 def register_fill_ica_results(ica_result_radio_id):
@@ -126,38 +172,3 @@ def register_fill_ica_results(ica_result_radio_id):
 
         return [{"label": os.path.basename(k), "value": k} for k in ica_store]
     
-def register_apply_ica_exclusion():
-    @callback(
-        Output("history-store", "data", allow_duplicate=True),
-        Output("exclusion-status", "children"),
-        Output("ica-components-selection", "value"),
-        Input("apply-ica-exclusion-button", "n_clicks"),
-        State("ica-components-selection", "value"),
-        State("history-store", "data"),
-        prevent_initial_call=True,
-    )
-    def _apply_ica_exclusion(n_clicks, selected, history_data):
-        if not n_clicks:
-            return dash.no_update, dash.no_update, dash.no_update
-
-        if not selected:
-            return (
-                dash.no_update,
-                dbc.Alert("No components selected.", color="warning", duration=3000),
-                [],
-            )
-
-        history_data = history_data or {}
-        already_excluded: set = set(history_data.get("excluded_ica_components", []))
-        newly_excluded   = already_excluded | set(selected)
-
-        history_data["excluded_ica_components"] = sorted(newly_excluded)
-
-        status = dbc.Alert(
-            f"{len(newly_excluded)} component(s) permanently excluded "
-            f"({len(newly_excluded) - len(already_excluded)} new).",
-            color="danger",
-            duration=4000,
-        )
-
-        return history_data, status, []

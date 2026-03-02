@@ -107,7 +107,7 @@ def register_preprocess_meg_data():
                         start_time,
                         end_time,
                         channels_dict,
-                        prep_raw,
+                        prep_raw=prep_raw,
                     )
 
                 return (

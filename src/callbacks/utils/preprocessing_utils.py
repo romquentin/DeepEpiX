@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 # Standard Library
 import os
 import hashlib
+from pathlib import Path
+import json
 
 # Third-party Libraries
 import numpy as np
@@ -76,10 +78,20 @@ def get_cache_filename(
     data_path, freq_data, start_time, end_time, cache_dir=f"{config.CACHE_DIR}"
 ):
     # Create a unique hash key
-    hash_input = f"{data_path}_{freq_data}_{start_time}_{end_time}"
+    hash_input = f"{data_path}_{json.dumps(freq_data, sort_keys=True)}_{start_time}_{end_time}"
     hash_key = hashlib.md5(hash_input.encode()).hexdigest()
     return os.path.join(cache_dir, f"{hash_key}.parquet")
 
+def get_cache_filename_cleaned(data_path, freq_data, start_time, end_time, 
+                                excluded_components, cache_dir):
+    import json
+    hash_input = (
+        f"{data_path}_{json.dumps(freq_data, sort_keys=True)}"
+        f"_{start_time}_{end_time}"
+        f"_ica_excluded_{sorted(excluded_components)}"
+    )
+    hash_key = hashlib.md5(hash_input.encode()).hexdigest()
+    return os.path.join(cache_dir, f"{hash_key}.parquet")
 
 def get_preprocessed_dataframe_dask(
     data_path,
@@ -87,17 +99,29 @@ def get_preprocessed_dataframe_dask(
     start_time,
     end_time,
     channels_dict,
+    excluded_ica_components=None,
     prep_raw=None,
     cache_dir=f"{config.CACHE_DIR}",
 ):
     os.makedirs(cache_dir, exist_ok=True)
     cu.clear_old_cache_files(cache_dir)
+
+    if excluded_ica_components:
+        print("USING ICAed SIGNAL")
+        cleaned_cache = get_cache_filename_cleaned(
+            data_path, freq_data, start_time, end_time, 
+            excluded_ica_components, cache_dir
+        )
+
+        if os.path.exists(cleaned_cache):
+            return dd.read_parquet(cleaned_cache)
+        
     cache_file = get_cache_filename(
         data_path, freq_data, start_time, end_time, cache_dir
     )
 
-    # If cache exists, load and return
     if os.path.exists(cache_file):
+        print("USING Cached SIGNAL")
         return dd.read_parquet(cache_file)
 
     # Otherwise, compute and save
@@ -166,6 +190,32 @@ def get_cache_filename_ica(data_path, start_time, end_time, ica_result_path, cac
     hash_key = hashlib.md5(hash_input.encode()).hexdigest()
     return os.path.join(cache_dir, f"{hash_key}.parquet")
 
+def run_ica_processing(data_path, n_components, ica_method, max_iter, decim, channel_store, cache_dir, ica_store):
+
+    ica_result_path = Path(cache_dir) / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica.fif"
+
+    if ica_result_path.exists() and str(ica_result_path) in ica_store:
+        ica = mne.preprocessing.read_ica(ica_result_path)
+        return ica_result_path, True, ica.n_components_
+
+    raw = dpu.read_raw(
+        data_path,
+        preload=True,
+        verbose=False,
+        bad_channels=channel_store.get("bad", []),
+    ).pick_types(meg=True)
+    raw.filter(l_freq=1.0, h_freq=None)
+
+    ica = mne.preprocessing.ICA(
+        n_components=n_components,
+        method=ica_method,
+        max_iter=max_iter,
+        random_state=97,
+    )
+    ica.fit(raw, decim=decim)
+    ica.save(ica_result_path, overwrite=True)
+
+    return ica_result_path, False, ica.n_components_
 
 def get_ica_dataframe_dask(
     data_path,
@@ -206,6 +256,39 @@ def get_ica_dataframe_dask(
     ddf = dd.from_pandas(sources_df, npartitions=10)
     ddf = ddf - ddf.mean(axis=0)
     ddf.to_parquet(cache_file)
+
+    return ddf
+
+def get_ica_cleaned_dataframe_dask(
+        data_path,
+        freq_data,
+        start_time,
+        end_time,
+        ica_result_path,
+        excluded_components,
+        raw,
+        cache_dir=f"{config.CACHE_DIR}",
+    ):
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cache_file = get_cache_filename_cleaned(
+        data_path, freq_data, start_time, end_time,
+        excluded_components, cache_dir
+    )
+    
+    if raw is None:
+        print("COUCOU raw none")
+        raw = dpu.read_raw(data_path, preload=True, verbose=False).pick_types(meg=True)
+
+    raw_chunk = raw.copy().crop(tmin=start_time, tmax=end_time)
+
+    ica = mne.preprocessing.read_ica(ica_result_path)
+    ica.exclude = list(excluded_components)
+    ica.apply(raw_chunk)
+
+    cleaned_df = raw_chunk.to_data_frame(index="time")
+    ddf = dd.from_pandas(cleaned_df, npartitions=10)
+    ddf.to_parquet(cache_file, overwrite=True)
 
     return ddf
 

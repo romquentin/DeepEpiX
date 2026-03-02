@@ -97,6 +97,7 @@ def generate_graph_time_channel(
     xaxis_range,
     channels_region,
     filter={},
+    excluded_ica_components=None,
 ):
     """Handles the preprocessing and figure generation for the M/EEG signal visualization."""
     import time
@@ -104,7 +105,7 @@ def generate_graph_time_channel(
     # Get recording from cache
     start_time = time.time()
     raw_ddf = pu.get_preprocessed_dataframe_dask(
-        data_path, freq_data, time_range[0], time_range[1], channels_region
+        data_path, freq_data, time_range[0], time_range[1], channels_region, excluded_ica_components=excluded_ica_components,
     )
 
     print(f"Step 1: Preprocessing completed in {time.time() - start_time:.2f} seconds.")

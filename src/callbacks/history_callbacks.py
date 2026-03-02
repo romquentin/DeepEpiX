@@ -41,8 +41,6 @@ def register_clean_annotation_history():
         if not n_clicks:
             return no_update
         
-        print("COUCOU")
-        
         history_data = history_data or {}
         HISTORY_CATEGORIES = ["ICA"]
 
