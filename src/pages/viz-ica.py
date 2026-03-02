@@ -27,7 +27,7 @@ from callbacks.annotation_callbacks import (
 
 from callbacks.history_callbacks import register_update_ica_history, register_update_ica_components
 
-from callbacks.ica_callbacks import register_compute_ica, register_fill_ica_results
+from callbacks.ica_callbacks import register_compute_ica, register_fill_ica_results, register_apply_ica_exclusion
 
 from callbacks.graph_callbacks import register_update_graph_ica
 
@@ -149,6 +149,8 @@ register_update_ica_history()
 register_update_ica_components()
 
 register_fill_ica_results(ica_result_radio_id="ica-result-radio")
+
+register_apply_ica_exclusion()
 
 # same as (raw) viz.py
 register_cancel_or_confirm_annotation_suppression(

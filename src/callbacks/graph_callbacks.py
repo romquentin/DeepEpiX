@@ -170,12 +170,13 @@ def register_update_graph_ica(ica_result_radio_id):
         State("max-iter", "value"),
         State("decim", "value"),
         State("graph-ica", "figure"),
+        State("history-store", "data"),
         prevent_initial_call=True,
     )
     def _update_graph_ica(
         n_clicks,
         page_selection,
-        excluded_indices,
+        selected_indices,
         ica_result_path,
         data_path,
         offset_selection,
@@ -186,6 +187,7 @@ def register_update_graph_ica(ica_result_radio_id):
         max_iter,
         decim,
         graph,
+        history_data,
     ):
         """Update ICA signal visualization."""
         if n_clicks == 0:
@@ -205,6 +207,11 @@ def register_update_graph_ica(ica_result_radio_id):
 
         if None in (n_components, ica_method, max_iter, decim):
             return dash.no_update, "You haven't compt"
+        
+        permanently_excluded: set = set(
+            (history_data or {}).get("excluded_ica_components", [])
+        )
+        all_grayed: list = sorted(permanently_excluded | set(selected_indices or []))
 
         time_range = chunk_limits[int(page_selection)]
 
@@ -221,7 +228,7 @@ def register_update_graph_ica(ica_result_radio_id):
                 ica_result_path,
                 color_selection,
                 xaxis_range,
-                excluded_indices,
+                all_grayed,
             )
 
             return fig, error

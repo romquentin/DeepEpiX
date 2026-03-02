@@ -1,6 +1,7 @@
 import os
 import dash
 from dash import Input, Output, State, callback
+import dash_bootstrap_components as dbc
 import mne
 import config
 from callbacks.utils import preprocessing_utils as pu
@@ -108,6 +109,7 @@ def register_compute_ica():
 
         action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
         history_data = hu.fill_history_data(history_data, "ICA", action, n_components=ica.n_components_)
+        history_data["excluded_ica_components"] = []
         return None, 0, ica_store, history_data
 
 
@@ -123,3 +125,39 @@ def register_fill_ica_results(ica_result_radio_id):
             return dash.no_update
 
         return [{"label": os.path.basename(k), "value": k} for k in ica_store]
+    
+def register_apply_ica_exclusion():
+    @callback(
+        Output("history-store", "data", allow_duplicate=True),
+        Output("exclusion-status", "children"),
+        Output("ica-components-selection", "value"),
+        Input("apply-ica-exclusion-button", "n_clicks"),
+        State("ica-components-selection", "value"),
+        State("history-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _apply_ica_exclusion(n_clicks, selected, history_data):
+        if not n_clicks:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        if not selected:
+            return (
+                dash.no_update,
+                dbc.Alert("No components selected.", color="warning", duration=3000),
+                [],
+            )
+
+        history_data = history_data or {}
+        already_excluded: set = set(history_data.get("excluded_ica_components", []))
+        newly_excluded   = already_excluded | set(selected)
+
+        history_data["excluded_ica_components"] = sorted(newly_excluded)
+
+        status = dbc.Alert(
+            f"{len(newly_excluded)} component(s) permanently excluded "
+            f"({len(newly_excluded) - len(already_excluded)} new).",
+            color="danger",
+            duration=4000,
+        )
+
+        return history_data, status, []

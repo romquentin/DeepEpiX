@@ -1,4 +1,4 @@
-from dash import Input, Output, callback, html
+from dash import Input, Output, callback, html, State, no_update
 import dash_bootstrap_components as dbc
 from callbacks.utils import history_utils as hu
 
@@ -32,13 +32,24 @@ def register_update_annotation_history():
 
 def register_clean_annotation_history():
     @callback(
-        Output("history-store", "clear_data", allow_duplicate=True),
-        Input("clean-history-button", "n_clicks"),
+        Output("history-store", "data", allow_duplicate=True),
+        Input("clean-history-button-ica", "n_clicks"),
+        State("history-store", "data"),
         prevent_initial_call=True,
     )
-    def clean_history(n_clicks):
-        if n_clicks > 0:
-            return True
+    def clean_history(n_clicks, history_data):
+        if not n_clicks:
+            return no_update
+        
+        print("COUCOU")
+        
+        history_data = history_data or {}
+        HISTORY_CATEGORIES = ["ICA"]
+
+        for category in HISTORY_CATEGORIES:
+            history_data.pop(category, None)
+
+        return history_data
 
 
 def register_update_ica_history():
@@ -79,14 +90,25 @@ def register_update_ica_components():
             return []
         
         n_components = history_data["metadata"].get("last_ica_count")
-
         if n_components is None:
             return []
         
-        options = [
-            {"label": f"ICA {i:02d}", "value": i} 
-            for i in range(n_components)
-        ]
+        excluded: set = set(history_data.get("excluded_ica_components", []))
+
+        options = []
+        for i in range(n_components):
+            if i in excluded:
+                options.append({
+                    "label": f"ICA {i:02d}  ✗ excluded",
+                    "value": i,
+                    "disabled": True,               # grayed out in Dash Checklist
+                })
+            else:
+                options.append({
+                    "label": f"ICA {i:02d}",
+                    "value": i,
+                    "disabled": False,
+                })
 
         return options
         
