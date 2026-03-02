@@ -2,12 +2,17 @@ import time
 from dash import html
 
 
-def fill_history_data(history_data, category, action):
+def fill_history_data(history_data, category, action, n_components=None):
     if not isinstance(history_data, dict):
-        history_data = {"annotations": [], "models": [], "ICA": []}
+        history_data = {"annotations": [], "models": [], "ICA": [], "metadata": {}}
 
     if category not in history_data:
         history_data[category] = []
+    
+    if category == "ICA" and n_components is not None:
+        if "metadata" not in history_data: 
+            history_data["metadata"] = {}
+        history_data["metadata"]["last_ica_count"] = n_components
 
     if action is None:
         return history_data
