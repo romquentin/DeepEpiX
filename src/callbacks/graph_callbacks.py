@@ -211,7 +211,7 @@ def register_update_graph_ica(ica_result_radio_id):
             )
 
         if None in (n_components, ica_method, max_iter, decim):
-            return dash.no_update, "You haven't compt"
+            return dash.no_update, "You haven't compute any ICA"
         
         permanently_excluded: set = set(
             (history_data or {}).get("excluded_ica_components", [])

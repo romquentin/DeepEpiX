@@ -108,6 +108,8 @@ def generate_graph_time_channel(
         data_path, freq_data, time_range[0], time_range[1], channels_region, excluded_ica_components=excluded_ica_components,
     )
 
+    print(type(raw_ddf))
+
     print(f"Step 1: Preprocessing completed in {time.time() - start_time:.2f} seconds.")
 
     # Filter time range
@@ -121,6 +123,12 @@ def generate_graph_time_channel(
     filter_df_start_time = time.time()
     try:
         filtered_raw_df = raw_ddf[selected_channels].compute()
+
+        variance_nettoyee = filtered_raw_df.var().mean()
+        print(f"Variance : {variance_nettoyee}")
+
+        print(type(filtered_raw_df))
+        print(filtered_raw_df.shape)
     except Exception:
         return (
             dash.no_update,
@@ -228,9 +236,15 @@ def generate_graph_time_ica(
     import time  # For logging execution times
 
     start_time = time.time()
-    raw_ddf = pu.get_ica_dataframe_dask(
-        data_path, time_range[0], time_range[1], ica_result_path
-    )
+    try:
+        raw_ddf = pu.get_ica_dataframe_dask(
+            data_path, time_range[0], time_range[1], ica_result_path
+        )
+    except Exception:
+        return (
+            dash.no_update,
+            "⚠️ Error while loading ICA components. You must select an ICA result before trying to display",
+        )
     print(f"Step 1: Preprocessing completed in {time.time() - start_time:.2f} seconds.")
 
     # Filter time range

@@ -107,11 +107,13 @@ def get_preprocessed_dataframe_dask(
     cu.clear_old_cache_files(cache_dir)
 
     if excluded_ica_components:
-        print("USING ICAed SIGNAL")
+        print(f"Composants ICA exclus demandés : {excluded_ica_components}")
         cleaned_cache = get_cache_filename_cleaned(
             data_path, freq_data, start_time, end_time, 
             excluded_ica_components, cache_dir
         )
+
+        print(cleaned_cache)
 
         if os.path.exists(cleaned_cache):
             return dd.read_parquet(cleaned_cache)
@@ -196,7 +198,8 @@ def run_ica_processing(data_path, n_components, ica_method, max_iter, decim, cha
 
     if ica_result_path.exists() and str(ica_result_path) in ica_store:
         ica = mne.preprocessing.read_ica(ica_result_path)
-        return ica_result_path, True, ica.n_components_
+        explained_variance = np.sum(ica.pca_explained_variance_[:ica.n_components_]) / np.sum(ica.pca_explained_variance_)
+        return ica_result_path, True, ica.n_components_, explained_variance
 
     raw = dpu.read_raw(
         data_path,
@@ -215,7 +218,14 @@ def run_ica_processing(data_path, n_components, ica_method, max_iter, decim, cha
     ica.fit(raw, decim=decim)
     ica.save(ica_result_path, overwrite=True)
 
-    return ica_result_path, False, ica.n_components_
+    total_var = np.sum(ica.pca_explained_variance_)
+    explained_var_sum = np.sum(ica.pca_explained_variance_[:ica.n_components_])
+    explained_variance = explained_var_sum / total_var
+
+    print(f"Total Var : {total_var}")
+    print(f"Explained Var : {explained_var_sum}")
+
+    return ica_result_path, False, ica.n_components_, explained_variance
 
 def get_ica_dataframe_dask(
     data_path,

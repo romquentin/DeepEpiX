@@ -76,7 +76,7 @@ def register_compute_ica():
             )
 
         try: 
-            ica_path, is_from_cache, n_components = pu.run_ica_processing(
+            ica_path, is_from_cache, n_components, explained_var = pu.run_ica_processing(
                 data_path, n_components, ica_method, max_iter, decim, 
                 channel_store, config.CACHE_DIR, ica_store
             )
@@ -87,7 +87,7 @@ def register_compute_ica():
                 pu.get_ica_dataframe_dask(data_path, start_time, end_time, ica_path)
 
             action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
-            history_data = hu.fill_history_data(history_data, "ICA", action, n_components)
+            history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var)
             history_data["excluded_ica_components"] = []
 
             return status_msg, 0, [str(ica_path)], history_data

@@ -178,6 +178,6 @@ if __name__ == "__main__":
         sfreq,
         window_size,
         noise_val,
-        total_length,
+        total_lenght,
         overlap,
     )
