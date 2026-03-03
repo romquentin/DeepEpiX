@@ -194,8 +194,6 @@ def run_ica_processing(data_path, n_components, ica_method, max_iter, decim, cha
     ica_result_path = Path(cache_dir) / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica.fif"
     components_dir = Path(cache_dir) / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica-components"
 
-    print(components_dir)
-
     if ica_result_path.exists() and str(ica_result_path) in ica_store:
         ica = mne.preprocessing.read_ica(ica_result_path)
         explained_variance = np.sum(ica.pca_explained_variance_[:ica.n_components_]) / np.sum(ica.pca_explained_variance_)
@@ -241,7 +239,7 @@ def _save_ica_component_plots(ica, components_dir: Path):
         fig.savefig(components_dir / f"page_{i}.png", dpi=120, bbox_inches="tight")
         plt.close(fig)
 
-def get_ica_dataframe_dask(
+def get_ica_components_dask(
     data_path,
     start_time,
     end_time,
@@ -249,6 +247,30 @@ def get_ica_dataframe_dask(
     raw=None,
     cache_dir=f"{config.CACHE_DIR}",
 ):
+    """
+    Extract ICA source components, resample, and return as a Dask DataFrame.
+
+    Parameters
+    ----------
+    data_path : str
+        Path to the raw MEG data file.
+    start_time : float
+        Start time of the segment in seconds.
+    end_time : float
+        End time of the segment in seconds.
+    ica_result_path : str
+        Path to the pre-computed MNE-ICA solution file.
+    raw : mne.io.Raw, optional
+        An existing MNE Raw object. If None, data is loaded and filtered at 1Hz.
+    cache_dir : str, optional
+        Directory for Parquet cache storage.
+
+    Returns
+    -------
+    dask.dataframe.DataFrame
+        A zero-mean Dask DataFrame containing the ICA source time courses 
+        resampled to 300 Hz.
+    """
     os.makedirs(cache_dir, exist_ok=True)
     cu.clear_old_cache_files(cache_dir)
 
@@ -264,6 +286,7 @@ def get_ica_dataframe_dask(
         raw.filter(l_freq=1.0, h_freq=None)
 
     raw = raw.copy().crop(tmin=start_time, tmax=end_time)
+    raw.pick_types(meg=True)
 
     ica = mne.preprocessing.read_ica(ica_result_path)
     sources = ica.get_sources(raw)
@@ -283,7 +306,7 @@ def get_ica_dataframe_dask(
 
     return ddf
 
-def get_ica_cleaned_dataframe_dask(
+def get_reconstructed_meg_dask(
         data_path,
         freq_data,
         start_time,
@@ -293,17 +316,45 @@ def get_ica_cleaned_dataframe_dask(
         raw,
         cache_dir=f"{config.CACHE_DIR}",
     ):
+    """
+    Clean MEG data using ICA and return a partitioned Dask DataFrame.
+
+    Parameters
+    ----------
+    data_path : str
+        Path to the raw MEG data file.
+    freq_data : float
+        Frequency information used for cache naming.
+    start_time : float
+        Start time of the data segment in seconds.
+    end_time : float
+        End time of the data segment in seconds.
+    ica_result_path : str
+        Path to the pre-computed MNE-ICA solution file.
+    excluded_components : list of int
+        Indices of ICA components to be removed (e.g., artifacts).
+    raw : mne.io.Raw or None
+        An existing MNE Raw object. If None, data is loaded from `data_path`.
+    cache_dir : str, optional
+        Directory to store the resulting Parquet files.
+
+    Returns
+    -------
+    dask.dataframe.DataFrame
+        The cleaned data represented as a partitioned Dask DataFrame.
+    """
     os.makedirs(cache_dir, exist_ok=True)
 
     cache_file = get_cache_filename_cleaned(
         data_path, freq_data, start_time, end_time,
         excluded_components, cache_dir
     )
-    
-    if raw is None:
-        raw = dpu.read_raw(data_path, preload=True, verbose=False).pick_types(meg=True)
 
+    if os.path.exists(cache_file):
+        return dd.read_parquet(cache_file)
+    
     raw_chunk = raw.copy().crop(tmin=start_time, tmax=end_time)
+    raw_chunk.pick_types(meg=True)
 
     ica = mne.preprocessing.read_ica(ica_result_path)
     ica.exclude = list(excluded_components)

@@ -4,7 +4,6 @@ from dash import Input, Output, State, callback, html
 import dash_bootstrap_components as dbc
 import config
 from callbacks.utils import preprocessing_utils as pu
-from callbacks.utils import path_utils as dpu
 from callbacks.utils import history_utils as hu
 from callbacks.utils import graph_utils as gu
 
@@ -43,7 +42,6 @@ def register_compute_ica():
         channel_store,
     ):
         """Update ICA signal visualization."""
-
         if n_clicks == 0:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -87,7 +85,7 @@ def register_compute_ica():
             status_msg = "✅ Reusing existing ICA results" if is_from_cache else "✅ Calcul ICA terminé"
 
             for start_time, end_time in chunk_limits:
-                pu.get_ica_dataframe_dask(data_path, start_time, end_time, ica_path)
+                pu.get_ica_components_dask(data_path, start_time, end_time, ica_path)
 
             action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
             history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var)
@@ -134,11 +132,11 @@ def register_apply_ica_exclusion():
         already_excluded = set(history_data.get("excluded_ica_components", []))
         all_excluded = sorted(already_excluded | set(selected))
 
-        prep_raw = pu.sort_filter_resample(data_path, freq_data, channel_store)
+        prep_raw = pu.sort_filter_resample(data_path, freq_data, channel_store) # Voir Cache ici
 
         for start_time, end_time in chunk_limits:
             
-            pu.get_ica_cleaned_dataframe_dask(
+            pu.get_reconstructed_meg_dask(
                 data_path,
                 freq_data,
                 start_time,

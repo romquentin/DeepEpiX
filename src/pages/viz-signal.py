@@ -58,6 +58,7 @@ from callbacks.spike_callbacks import (
 
 # --- History ---
 from callbacks.history_callbacks import (
+    register_clean_ica_history,
     register_clean_annotation_history,
     register_update_annotation_history,
 )
@@ -353,6 +354,7 @@ register_move_to_next_annotation(
 
 # --- History ---
 register_update_annotation_history()
+register_clean_ica_history()
 register_clean_annotation_history()
 
 # --- Predict ---

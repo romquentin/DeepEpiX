@@ -29,8 +29,7 @@ def register_update_annotation_history():
             ]
         )
 
-
-def register_clean_annotation_history():
+def register_clean_ica_history():
     @callback(
         Output("history-store", "data", allow_duplicate=True),
         Input("clean-history-button-ica", "n_clicks"),
@@ -43,6 +42,25 @@ def register_clean_annotation_history():
         
         history_data = history_data or {}
         HISTORY_CATEGORIES = ["ICA"]
+
+        for category in HISTORY_CATEGORIES:
+            history_data.pop(category, None)
+
+        return history_data
+
+def register_clean_annotation_history():
+    @callback(
+        Output("history-store", "data", allow_duplicate=True),
+        Input("clean-history-button", "n_clicks"),
+        State("history-store", "data"),
+        prevent_initial_call=True,
+    )
+    def clean_history(n_clicks, history_data):
+        if not n_clicks:
+            return no_update
+        
+        history_data = history_data or {}
+        HISTORY_CATEGORIES = ["annotations"]
 
         for category in HISTORY_CATEGORIES:
             history_data.pop(category, None)

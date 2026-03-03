@@ -126,8 +126,8 @@ def generate_graph_time_channel(
     try:
         filtered_raw_df = raw_ddf[selected_channels].compute()
 
-        variance_nettoyee = filtered_raw_df.var().mean()
-        print(f"Variance : {variance_nettoyee}")
+        clean_variance = filtered_raw_df.var().mean()
+        print(f"Variance : {clean_variance}")
 
         print(type(filtered_raw_df))
         print(filtered_raw_df.shape)
@@ -239,7 +239,7 @@ def generate_graph_time_ica(
 
     start_time = time.time()
     try:
-        raw_ddf = pu.get_ica_dataframe_dask(
+        raw_ddf = pu.get_ica_components_dask(
             data_path, time_range[0], time_range[1], ica_result_path
         )
     except Exception:
