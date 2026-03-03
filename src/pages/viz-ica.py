@@ -1,6 +1,6 @@
 # view.py
 import dash
-from dash import html
+from dash import html, dcc
 from dash_extensions import Keyboard
 
 import dash_bootstrap_components as dbc
@@ -27,7 +27,7 @@ from callbacks.annotation_callbacks import (
 
 from callbacks.history_callbacks import register_update_ica_history, register_update_ica_components
 
-from callbacks.ica_callbacks import register_compute_ica, register_fill_ica_results, register_apply_ica_exclusion
+from callbacks.ica_callbacks import register_compute_ica, register_fill_ica_results, register_apply_ica_exclusion, register_plot_ica_maps
 
 from callbacks.graph_callbacks import register_update_graph_ica
 
@@ -83,6 +83,14 @@ layout = html.Div(
                                     className="mb-2",
                                     title="Select",
                                 ),
+                                dbc.Button(
+                                    html.I(className="bi bi-grid-3x3-gap"),
+                                    id="nav-components-ica",
+                                    color="info",
+                                    size="sm",
+                                    className="mb-2",
+                                    title="View ICA Components",
+                                ),
                             ],
                             style={
                                 "display": "flex",
@@ -121,6 +129,77 @@ layout = html.Div(
                 "gap": "20px",
             },
         ),
+
+        html.Div(
+            [
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Span(
+                                    "Computed ICA Components",
+                                    style={"fontWeight": "bold", "fontSize": "14px"},
+                                ),
+                                dbc.Button(
+                                    html.I(className="bi bi-x-lg"),
+                                    id="close-components-ica",
+                                    color="link",
+                                    size="sm",
+                                    style={"color": "white", "padding": "0"},
+                                ),
+                            ],
+                            style={
+                                "display": "flex",
+                                "justifyContent": "space-between",
+                                "alignItems": "center",
+                                "backgroundColor": "#2eafc9",
+                                "color": "white",
+                                "padding": "6px 10px",
+                                "borderRadius": "6px 6px 0 0",
+                                "cursor": "move",
+                            },
+                            id="components-window-header-ica",
+                        ),
+                        dbc.Collapse(
+                            html.Div(
+                                [
+                                    dcc.Loading(
+                                        id="loading-components-ica",
+                                        children=html.Div(
+                                            id="components-content-ica",
+                                            style={
+                                                "padding": "10px",
+                                                "overflowY": "auto",
+                                                "maxHeight": "60vh",
+                                            },
+                                        ),
+                                        type="circle",
+                                    ),
+                                ],
+                            ),
+                            id="components-body-collapse-ica",
+                            is_open=True,
+                        ),
+                    ],
+                    style={
+                        "backgroundColor": "white",
+                        "border": "1px solid #dee2e6",
+                        "borderRadius": "6px",
+                        "boxShadow": "0 4px 15px rgba(0,0,0,0.2)",
+                        "width": "300px",
+                        "minWidth": "500px",
+                    },
+                ),
+            ],
+            id="components-window-ica",
+            style={
+                "position": "fixed",
+                "top": "70px",
+                "right": "20px",
+                "zIndex": 2000,
+                "display": "none",
+            },
+        ),
         html.Div(id="python-error-ica"),
     ]
 )
@@ -151,6 +230,8 @@ register_update_ica_components()
 register_fill_ica_results(ica_result_radio_id="ica-result-radio")
 
 register_apply_ica_exclusion()
+
+register_plot_ica_maps()
 
 # same as (raw) viz.py
 register_cancel_or_confirm_annotation_suppression(

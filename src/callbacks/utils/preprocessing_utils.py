@@ -113,8 +113,6 @@ def get_preprocessed_dataframe_dask(
             excluded_ica_components, cache_dir
         )
 
-        print(cleaned_cache)
-
         if os.path.exists(cleaned_cache):
             return dd.read_parquet(cleaned_cache)
         
@@ -123,7 +121,6 @@ def get_preprocessed_dataframe_dask(
     )
 
     if os.path.exists(cache_file):
-        print("USING Cached SIGNAL")
         return dd.read_parquet(cache_file)
 
     # Otherwise, compute and save
@@ -195,11 +192,14 @@ def get_cache_filename_ica(data_path, start_time, end_time, ica_result_path, cac
 def run_ica_processing(data_path, n_components, ica_method, max_iter, decim, channel_store, cache_dir, ica_store):
 
     ica_result_path = Path(cache_dir) / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica.fif"
+    components_dir = Path(cache_dir) / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica-components"
+
+    print(components_dir)
 
     if ica_result_path.exists() and str(ica_result_path) in ica_store:
         ica = mne.preprocessing.read_ica(ica_result_path)
         explained_variance = np.sum(ica.pca_explained_variance_[:ica.n_components_]) / np.sum(ica.pca_explained_variance_)
-        return ica_result_path, True, ica.n_components_, explained_variance
+        return ica_result_path, components_dir, True, ica.n_components_, explained_variance
 
     raw = dpu.read_raw(
         data_path,
@@ -218,14 +218,28 @@ def run_ica_processing(data_path, n_components, ica_method, max_iter, decim, cha
     ica.fit(raw, decim=decim)
     ica.save(ica_result_path, overwrite=True)
 
+    _save_ica_component_plots(ica, components_dir)
+
     total_var = np.sum(ica.pca_explained_variance_)
     explained_var_sum = np.sum(ica.pca_explained_variance_[:ica.n_components_])
     explained_variance = explained_var_sum / total_var
 
-    print(f"Total Var : {total_var}")
-    print(f"Explained Var : {explained_var_sum}")
+    return ica_result_path, components_dir, False, ica.n_components_, explained_variance
 
-    return ica_result_path, False, ica.n_components_, explained_variance
+def _save_ica_component_plots(ica, components_dir: Path):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    components_dir.mkdir(parents=True, exist_ok=True)
+
+    figs = ica.plot_components(show=False)
+    if not isinstance(figs, list):
+        figs = [figs]
+
+    for i, fig in enumerate(figs):
+        fig.savefig(components_dir / f"page_{i}.png", dpi=120, bbox_inches="tight")
+        plt.close(fig)
 
 def get_ica_dataframe_dask(
     data_path,
@@ -287,7 +301,6 @@ def get_ica_cleaned_dataframe_dask(
     )
     
     if raw is None:
-        print("COUCOU raw none")
         raw = dpu.read_raw(data_path, preload=True, verbose=False).pick_types(meg=True)
 
     raw_chunk = raw.copy().crop(tmin=start_time, tmax=end_time)

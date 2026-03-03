@@ -1,12 +1,12 @@
 import os
 import dash
-from dash import Input, Output, State, callback
+from dash import Input, Output, State, callback, html
 import dash_bootstrap_components as dbc
-import mne
 import config
 from callbacks.utils import preprocessing_utils as pu
 from callbacks.utils import path_utils as dpu
 from callbacks.utils import history_utils as hu
+from callbacks.utils import graph_utils as gu
 
 
 def register_compute_ica():
@@ -15,6 +15,7 @@ def register_compute_ica():
         Output("compute-ica-button", "n_clicks"),
         Output("ica-store", "data"),
         Output("history-store", "data", allow_duplicate=True),
+        Output("ica-components-dir-store", "data"),
         Input("compute-ica-button", "n_clicks"),
         State("data-path-store", "data"),
         State("chunk-limits-store", "data"),
@@ -44,16 +45,16 @@ def register_compute_ica():
         """Update ICA signal visualization."""
 
         if n_clicks == 0:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         # Validation: Check if all required fields are filled
         if not data_path:
             error_message = "⚠️ Please choose a subject to display on Home page."
-            return error_message, dash.no_update, dash.no_update, dash.no_update
+            return error_message, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         if not chunk_limits:
             error_message = "⚠️ You have a subject in memory but its recording has not been preprocessed yet. Please go back on Home page to reprocess the signal."
-            return error_message, dash.no_update, dash.no_update, dash.no_update
+            return error_message, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         missing_fields = []
         if not n_components:
@@ -73,10 +74,12 @@ def register_compute_ica():
                 dash.no_update,
                 dash.no_update,
                 dash.no_update,
+                dash.no_update,
+                dash.no_update,
             )
 
         try: 
-            ica_path, is_from_cache, n_components, explained_var = pu.run_ica_processing(
+            ica_path, components_dir, is_from_cache, n_components, explained_var = pu.run_ica_processing(
                 data_path, n_components, ica_method, max_iter, decim, 
                 channel_store, config.CACHE_DIR, ica_store
             )
@@ -90,10 +93,10 @@ def register_compute_ica():
             history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var)
             history_data["excluded_ica_components"] = []
 
-            return status_msg, 0, [str(ica_path)], history_data
+            return status_msg, 0, [str(ica_path)], history_data, str(components_dir)
 
         except Exception as e:
-            return f"Erreur : {str(e)}", dash.no_update, dash.no_update, dash.no_update
+            return f"Erreur : {str(e)}", dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 def register_apply_ica_exclusion():
     @callback(
@@ -171,4 +174,54 @@ def register_fill_ica_results(ica_result_radio_id):
             return dash.no_update
 
         return [{"label": os.path.basename(k), "value": k} for k in ica_store]
+    
+def register_plot_ica_maps():
+    @callback(
+        Output("components-window-ica", "style"),
+        Output("components-content-ica", "children"),
+        Input("nav-components-ica", "n_clicks"),
+        Input("close-components-ica", "n_clicks"),
+        State("components-window-ica", "style"),
+        State("ica-components-dir-store", "data"),
+        prevent_initial_call=True,
+    )
+    def toggle_components_window(
+        open_clicks, close_clicks, current_style, components_dir
+    ):
+        triggered = dash.ctx.triggered_id
+
+        base_style = {
+            "position": "fixed",
+            "top": "70px",
+            "right": "20px",
+            "zIndex": 2000,
+        }
+
+        if triggered == "close-components-ica":
+            return {**base_style, "display": "none"}, dash.no_update
+
+        if triggered == "nav-components-ica":
+
+            if not components_dir:
+                content = html.Div(
+                    "⚠️ Aucune composante disponible. Veuillez d'abord calculer l'ICA.",
+                    style={"padding": "12px", "color": "orange"},
+                )
+                return {**base_style, "display": "block"}, content
+
+            images = gu.get_ica_components_figures(components_dir)
+
+            content = html.Div(
+                [
+                    html.Img(
+                        src=src,
+                        style={"width": "100%", "marginBottom": "8px"},
+                    )
+                    for src in images
+                ],
+                style={"overflowY": "auto", "maxHeight": "60vh", "padding": "8px"},
+            )
+            return {**base_style, "display": "block"}, content
+
+        return current_style, dash.no_update
     

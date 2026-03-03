@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import dash
 from dash import Patch
+from pathlib import Path
+import base64
 import plotly.graph_objects as go
 from layout.config_layout import (
     DEFAULT_FIG_LAYOUT,
@@ -243,7 +245,7 @@ def generate_graph_time_ica(
     except Exception:
         return (
             dash.no_update,
-            "⚠️ Error while loading ICA components. You must select an ICA result before trying to display",
+            "⚠️ You must select an ICA result before trying to display",
         )
     print(f"Step 1: Preprocessing completed in {time.time() - start_time:.2f} seconds.")
 
@@ -439,3 +441,14 @@ def update_annotations_on_graph(
     )
 
     return fig_patch
+
+def get_ica_components_figures(components_dir):
+    components_dir = Path(components_dir)
+    images_b64 = []
+
+    for png_path in sorted(components_dir.glob("page_*.png")):
+        with open(png_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+        images_b64.append(f"data:image/png;base64,{encoded}")
+
+    return images_b64
