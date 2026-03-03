@@ -109,4 +109,3 @@ def register_update_ica_components():
                 })
 
         return options
-        

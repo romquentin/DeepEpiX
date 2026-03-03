@@ -42,6 +42,9 @@ def register_preprocess_meg_data():
         Output("raw-modality", "data"),
         Output("chunk-limits-store", "data"),
         Output("url", "pathname"),
+        Output("history-store", "data", allow_duplicate=True),
+        Output("ica-store", "data", allow_duplicate=True),
+        Output("ica-components-dir-store", "data", allow_duplicate=True),
         Input("preprocess-display-button", "n_clicks"),
         State("data-path-store", "data"),
         State("resample-freq", "value"),
@@ -64,6 +67,8 @@ def register_preprocess_meg_data():
         bad_channels,
     ):
         """Preprocess M/EEG data and save it, store annotations and chunk limits in memory."""
+        NO_UPDATE = (dash.no_update,) * 10
+
         if n_clicks > 0:
             try:
                 raw = dpu.read_raw(
@@ -118,25 +123,13 @@ def register_preprocess_meg_data():
                     modality,
                     chunk_limits,
                     "/viz/raw-signal",
+                    [],
+                    [],                              
+                    None,                           
                 )
 
             except Exception as e:
                 return (
-                    f"⚠️ Error during preprocessing : {str(e)}",
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                    dash.no_update,
-                )
+                    f"⚠️ Error during preprocessing : {str(e)}",) + NO_UPDATE[1:]
 
-        return (
-            dash.no_update,
-            dash.no_update,
-            dash.no_update,
-            dash.no_update,
-            dash.no_update,
-            dash.no_update,
-            dash.no_update,
-        )
+        return NO_UPDATE
