@@ -138,7 +138,7 @@ layout = html.Div(
                         html.Div(
                             [
                                 html.Span(
-                                    "Computed ICA Components",
+                                    "Scalp Field Topographies of each component",
                                     style={"fontWeight": "bold", "fontSize": "14px"},
                                 ),
                                 dbc.Button(
@@ -187,8 +187,8 @@ layout = html.Div(
                         "border": "1px solid #dee2e6",
                         "borderRadius": "6px",
                         "boxShadow": "0 4px 15px rgba(0,0,0,0.2)",
-                        "width": "300px",
-                        "minWidth": "500px",
+                        "width": "500px",
+                        "minWidth": "600px",
                     },
                 ),
             ],
@@ -232,7 +232,7 @@ register_fill_ica_results(ica_result_radio_id="ica-result-radio")
 
 register_apply_ica_exclusion()
 
-register_plot_ica_maps()
+register_plot_ica_maps(ica_result_radio_id="ica-result-radio")
 
 register_fill_signal_versions()
 

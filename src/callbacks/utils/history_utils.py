@@ -13,14 +13,6 @@ def fill_history_data(history_data, category, action, n_components=None, explain
         history_data[category] = []
     
     if category == "ICA":
-        """
-        if n_components is not None:
-            history_data["metadata"]["last_ica_count"] = n_components
-        if explained_var is not None:
-            history_data["metadata"]["last_explained_var"] = explained_var
-        if "excluded_ica_components" not in history_data["metadata"]:
-            history_data["metadata"]["excluded_ica_components"] = []"""
-        
         if ica_key is not None:
             if "ica_results" not in history_data["metadata"]:
                 history_data["metadata"]["ica_results"] = {}

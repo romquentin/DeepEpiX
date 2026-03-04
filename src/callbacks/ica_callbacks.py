@@ -25,6 +25,7 @@ def register_compute_ica():
         State("history-store", "data"),
         State("ica-store", "data"),
         State("channel-store", "data"),
+        State("ica-components-dir-store", "data"),
         prevent_initial_call=True,
     )
     def _compute_ica(
@@ -38,6 +39,7 @@ def register_compute_ica():
         history_data,
         ica_store,
         channel_store,
+        components_dir_store,
     ):
         """
         Decompose M/EEG signals into independent components using ICA.
@@ -125,7 +127,12 @@ def register_compute_ica():
             if str(ica_path) not in ica_store:
                 ica_store.append(str(ica_path))
 
-            return status_msg, 0, ica_store, history_data, str(components_dir)
+            if not isinstance(components_dir_store, dict):
+                components_dir_store = {}
+
+            components_dir_store[str(ica_path)] = str(components_dir)
+
+            return status_msg, 0, ica_store, history_data, components_dir_store
 
         except Exception as e:
             return f"Erreur : {str(e)}", dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -225,7 +232,7 @@ def register_apply_ica_exclusion():
             )
 
         ica_entry["excluded_components"] = all_excluded
-        action = f"Excluded ICA components {all_excluded} from signal.\n"
+        action = f"Excluded components {all_excluded} from signal (ICA computed with {ica_entry['n_components']} components).\n"
         history_data = hu.fill_history_data(history_data, "ICA", action, ica_key=ica_result_path)
 
         status = dbc.Alert(
@@ -234,8 +241,6 @@ def register_apply_ica_exclusion():
             color="danger",
             duration=4000,
         )
-
-        print(f"History Store : {history_data}")
 
         return history_data, status, []
 
@@ -252,18 +257,19 @@ def register_fill_ica_results(ica_result_radio_id):
             return dash.no_update
         return [{"label": os.path.basename(k), "value": k} for k in ica_store]
     
-def register_plot_ica_maps():
+def register_plot_ica_maps(ica_result_radio_id):
     @callback(
         Output("components-window-ica", "style"),
         Output("components-content-ica", "children"),
         Input("nav-components-ica", "n_clicks"),
         Input("close-components-ica", "n_clicks"),
+        Input(ica_result_radio_id, "value"),
         State("components-window-ica", "style"),
         State("ica-components-dir-store", "data"),
         prevent_initial_call=True,
     )
     def toggle_components_window(
-        open_clicks, close_clicks, current_style, components_dir
+        open_clicks, close_clicks, ica_result_path, current_style, components_dir
     ):
         """
         Manage the display state and content of the ICA topographic components side window.
@@ -300,28 +306,32 @@ def register_plot_ica_maps():
         if triggered == "close-components-ica":
             return {**base_style, "display": "none"}, dash.no_update
 
-        if triggered == "nav-components-ica":
+        resolved_dir = None
+        if isinstance(components_dir, dict):
+            resolved_dir = components_dir.get(ica_result_path)
+        else:
+            resolved_dir = components_dir
 
-            if not components_dir:
-                content = html.Div(
+        def build_content(resolved_dir):
+            if not resolved_dir:
+                return html.Div(
                     "⚠️ Aucune composante disponible. Veuillez d'abord calculer l'ICA.",
                     style={"padding": "12px", "color": "orange"},
                 )
-                return {**base_style, "display": "block"}, content
-
-            images = gu.get_ica_components_figures(components_dir)
-
-            content = html.Div(
-                [
-                    html.Img(
-                        src=src,
-                        style={"width": "100%", "marginBottom": "8px"},
-                    )
-                    for src in images
-                ],
+            images = gu.get_ica_components_figures(resolved_dir)
+            return html.Div(
+                [html.Img(src=src, style={"width": "100%", "marginBottom": "8px"}) for src in images],
                 style={"overflowY": "auto", "maxHeight": "60vh", "padding": "8px"},
             )
-            return {**base_style, "display": "block"}, content
 
+
+        if triggered == "nav-components-ica":
+            return {**base_style, "display": "block"}, build_content(resolved_dir)
+        
+        if triggered == ica_result_radio_id:
+            window_is_open = current_style and current_style.get("display") == "block"
+            if window_is_open:
+                return current_style, build_content(resolved_dir)
+            
         return current_style, dash.no_update
     
