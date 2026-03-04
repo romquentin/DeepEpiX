@@ -1,6 +1,7 @@
 import dash
-from dash import html, dcc, Input, Output, clientside_callback
+from dash import html, dcc, Input, Output, clientside_callback, callback
 from dash_extensions import Keyboard
+import os
 
 # Layout imports
 import layout.graph_layout as gl
@@ -23,6 +24,7 @@ from callbacks.selection_callbacks import (
     register_hide_channel_selection_when_montage,
     register_clear_check_all_annotation_checkboxes,
     register_manage_channels_checklist,
+    register_fill_signal_versions,
     register_offset_display,
     register_page_buttons_display,
     register_modal_annotation_suppression,

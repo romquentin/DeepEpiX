@@ -94,22 +94,31 @@ def register_update_ica_history():
             ]
         )
 
-def register_update_ica_components():
+def register_update_ica_components(ica_result_radio_id):
     @callback(
         Output("ica-components-selection", "options"),
         Input("sidebar-tabs-ica", "active_tab"),
         Input("history-store", "data"),
+        Input(ica_result_radio_id, "value"),
         prevent_initial_call=False,
     )
-    def _update_ica_options(active_tab, history_data):
+    def _update_ica_options(active_tab, history_data, selected_ica):
         if not history_data or "metadata" not in history_data:
             return []
         
-        n_components = history_data["metadata"].get("last_ica_count")
+        meta = history_data["metadata"]
+        ica_results = meta.get("ica_results", {})
+
+        if selected_ica and selected_ica in ica_results:
+            ica_meta   = ica_results[selected_ica]
+            n_components = ica_meta.get("n_components")
+            excluded     = set(ica_meta.get("excluded_components", []))
+        else:
+            n_components = meta.get("last_ica_count")
+            excluded     = set(meta.get("excluded_ica_components", []))
+
         if n_components is None:
             return []
-        
-        excluded: set = set(history_data.get("metadata", {}).get("excluded_ica_components", []))
 
         options = []
         for i in range(n_components):

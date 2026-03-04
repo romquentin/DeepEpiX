@@ -160,7 +160,34 @@ def register_clear_check_all_annotation_checkboxes(
             return []
 
         return dash.no_update
+    
+def register_fill_signal_versions():
+    @callback(
+        Output("signal-version-radio", "options"),
+        Input("history-store", "data"),
+        Input("url", "pathname"),
+        prevent_initial_call=False,
+    )
+    def _fill_signal_versions(history_data, url):
+        options = [{"label": "Raw signal", "value": "__raw__"}]
 
+        ica_results = (
+            (history_data or {})
+            .get("metadata", {})
+            .get("ica_results", {})
+        )
+
+        for ica_path, ica_meta in ica_results.items():
+            excluded = ica_meta.get("excluded_components", [])
+            if not excluded:
+                continue
+            label = (
+                f"ICA · {os.path.basename(ica_path)} "
+                f"— excl. {excluded}"
+            )
+            options.append({"label": label, "value": ica_path})
+
+        return options
 
 # ─────────────────────────────
 # 🧭 Offset Display

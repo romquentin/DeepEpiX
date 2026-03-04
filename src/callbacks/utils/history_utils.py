@@ -2,7 +2,7 @@ import time
 from dash import html
 
 
-def fill_history_data(history_data, category, action, n_components=None, explained_var=None,):
+def fill_history_data(history_data, category, action, n_components=None, explained_var=None, ica_key=None):
     if not isinstance(history_data, dict):
         history_data = {"annotations": [], "models": [], "ICA": [], "metadata": {}}
 
@@ -13,12 +13,29 @@ def fill_history_data(history_data, category, action, n_components=None, explain
         history_data[category] = []
     
     if category == "ICA":
+        """
         if n_components is not None:
             history_data["metadata"]["last_ica_count"] = n_components
         if explained_var is not None:
             history_data["metadata"]["last_explained_var"] = explained_var
         if "excluded_ica_components" not in history_data["metadata"]:
-            history_data["metadata"]["excluded_ica_components"] = []
+            history_data["metadata"]["excluded_ica_components"] = []"""
+        
+        if ica_key is not None:
+            if "ica_results" not in history_data["metadata"]:
+                history_data["metadata"]["ica_results"] = {}
+            if ica_key not in history_data["metadata"]["ica_results"]:
+                history_data["metadata"]["ica_results"][ica_key] = {
+                    "n_components": n_components,
+                    "explained_var": explained_var,
+                    "excluded_components": [],
+                }
+            else:
+                entry = history_data["metadata"]["ica_results"][ica_key]
+                if n_components is not None:
+                    entry["n_components"] = n_components
+                if explained_var is not None:
+                    entry["explained_var"] = explained_var
             
     if action is None:
         return history_data

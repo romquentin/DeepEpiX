@@ -17,6 +17,7 @@ from callbacks.selection_callbacks import (
     register_modal_annotation_suppression,
     register_toggle_intersection_modal,
     register_create_intersection,
+    register_fill_signal_versions,
 )
 
 from callbacks.annotation_callbacks import (
@@ -225,13 +226,15 @@ register_update_graph_ica(ica_result_radio_id="ica-result-radio")
 
 register_update_ica_history()
 
-register_update_ica_components()
+register_update_ica_components(ica_result_radio_id="ica-result-radio")
 
 register_fill_ica_results(ica_result_radio_id="ica-result-radio")
 
 register_apply_ica_exclusion()
 
 register_plot_ica_maps()
+
+register_fill_signal_versions()
 
 # same as (raw) viz.py
 register_cancel_or_confirm_annotation_suppression(

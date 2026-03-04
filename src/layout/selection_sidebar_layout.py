@@ -58,6 +58,28 @@ def create_selection(
                 html.Div(
                     [
                         html.Label(
+                            "Select signal to display:",
+                            style={
+                                "fontWeight": "bold",
+                                "fontSize": "14px",
+                                "marginBottom": "8px",
+                            },
+                        ),
+                        dcc.RadioItems(
+                            id="signal-version-radio",
+                            options=[{"label": "Filtered signal", "value": "__raw__"}],
+                            value="__raw__",
+                            inline=False,
+                            style={"margin": "10px 0", "fontSize": "12px"},
+                            persistence=True,
+                            persistence_type="session",
+                        ),
+                    ],
+                    style=BOX_STYLES["classic"],
+                ),
+                html.Div(
+                    [
+                        html.Label(
                             "Select Channels:",
                             style={
                                 "fontWeight": "bold",

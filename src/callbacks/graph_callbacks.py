@@ -26,6 +26,7 @@ def register_update_graph_raw_signal():
         State("channel-store", "data"),
         State("sensitivity-analysis-store", "data"),
         State("history-store", "data"),
+        State("signal-version-radio", "value"),
         running=[(Output("update-button", "disabled"), True, False)],
         prevent_initial_call=True,
     )
@@ -44,6 +45,7 @@ def register_update_graph_raw_signal():
         channel_store,
         sensitivity_analysis_store,
         history_data,
+        signal_version,
     ):
         """Update M/EEG signal visualization based on time and channel selection."""
 
@@ -123,8 +125,13 @@ def register_update_graph_raw_signal():
                     filter = pickle.load(f)
             except KeyError:
                 return dash.no_update, "No color selected for graph traces.", ERROR
-
-        excluded_ica = (history_data or {}).get("metadata", {}).get("excluded_ica_components", [])
+            
+        meta = (history_data or {}).get("metadata", {})
+        ica_results = meta.get("ica_results", {})
+        if signal_version and signal_version != "__raw__" and signal_version in ica_results:
+            excluded_ica = ica_results[signal_version].get("excluded_components", [])
+        else:
+            excluded_ica = None
 
         try:
             fig, error, error_style = gu.generate_graph_time_channel(
@@ -257,9 +264,21 @@ def register_update_graph_ica(ica_result_radio_id):
         if None in (n_components, ica_method, max_iter, decim):
             return dash.no_update, "You haven't compute any ICA"
         
+        meta = (history_data or {}).get("metadata", {})
+        ica_results = meta.get("ica_results", {})
+        
+        try:
+            permanently_excluded = set(ica_results[ica_result_path].get("excluded_components", []))
+        except Exception as e:
+            return (
+                dash.no_update,
+                "⚠️ You haven't select any ICA Result to plot.",
+            )
+
+        """
         permanently_excluded: set = set(
             (history_data or {}).get("metadata", {}).get("excluded_ica_components", [])
-        )
+        )"""
         all_grayed: list = sorted(permanently_excluded | set(selected_indices or []))
 
         time_range = chunk_limits[int(page_selection)]

@@ -121,7 +121,7 @@ def register_compute_ica():
                 pu.get_ica_components_dask(data_path, start_time, end_time, ica_path)
 
             action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
-            history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var)
+            history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var, ica_key=str(ica_path))
             if str(ica_path) not in ica_store:
                 ica_store.append(str(ica_path))
 
@@ -200,11 +200,18 @@ def register_apply_ica_exclusion():
             )
     
         history_data = history_data or {}
-        already_excluded = set(history_data.get("metadata", {}).get("excluded_ica_components", []))
+        meta = history_data.setdefault("metadata", {})
+        ica_results = meta.setdefault("ica_results", {})
+        ica_entry = ica_results.setdefault(ica_result_path, {
+            "n_components": None,
+            "explained_var": None,
+            "excluded_components": [],
+        })
+
+        already_excluded = set(ica_entry.get("excluded_components", []))
         all_excluded = sorted(already_excluded | set(selected))
 
-        prep_raw = pu.sort_filter_resample(data_path, freq_data, channel_store) # Voir Cache ici
-
+        prep_raw = pu.sort_filter_resample(data_path, freq_data, channel_store)
         for start_time, end_time in chunk_limits:
 
             pu.get_reconstructed_signal_dask(
@@ -217,9 +224,9 @@ def register_apply_ica_exclusion():
                 prep_raw,
             )
 
-        history_data["metadata"]["excluded_ica_components"] = all_excluded
+        ica_entry["excluded_components"] = all_excluded
         action = f"Excluded ICA components {all_excluded} from signal.\n"
-        history_data = hu.fill_history_data(history_data, "ICA", action)
+        history_data = hu.fill_history_data(history_data, "ICA", action, ica_key=ica_result_path)
 
         status = dbc.Alert(
             f"{len(all_excluded)} component(s) permanently excluded "
