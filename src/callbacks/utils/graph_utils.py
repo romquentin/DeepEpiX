@@ -234,8 +234,43 @@ def generate_graph_time_ica(
     xaxis_range,
     excluded_indices
 ):
-    """Handles the preprocessing and figure generation for the M/EEG signal visualization."""
-    import time  # For logging execution times
+    """
+    Generate a Plotly figure representing ICA component time courses.
+
+    This function coordinates the following visualization pipeline:
+    1. Retrieves resampled ICA sources using Dask/Parquet.
+    2. Computes vertical offsets for trace stacking.
+    3. Maps colors and opacities (dimming excluded components).
+    4. Renders the figure using WebGL (Scattergl) for smooth interaction.
+
+    Parameters
+    ----------
+    offset_selection : float
+        Scalar multiplier used to determine the vertical spacing between 
+        component traces.
+    time_range : tuple of float
+        The (start, end) timestamps in seconds for the data chunk to load.
+    data_path : str
+        Path to the original raw M/EEG data file.
+    ica_result_path : str
+        Path to the pre-computed MNE ICA solution file (.fif).
+    color_selection : {'rainbow', 'blue', 'white'}
+        The color scheme applied to the signal traces.
+    xaxis_range : list of float
+        The [min, max] values for the initial x-axis zoom level.
+    excluded_indices : list of int or set
+        Indices of ICA components (e.g., [1, 5]) that should be rendered 
+        with lower opacity to indicate they are marked for exclusion.
+
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        The resulting Plotly figure containing the styled ICA traces.
+    error : str or None
+        A descriptive error message if the process fails, otherwise None.
+    """
+    
+    import time
 
     start_time = time.time()
     try:

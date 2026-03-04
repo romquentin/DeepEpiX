@@ -22,7 +22,6 @@ def register_compute_ica():
         State("ica-method", "value"),
         State("max-iter", "value"),
         State("decim", "value"),
-        State("frequency-store", "data"),
         State("history-store", "data"),
         State("ica-store", "data"),
         State("channel-store", "data"),
@@ -36,12 +35,46 @@ def register_compute_ica():
         ica_method,
         max_iter,
         decim,
-        freq_data,
         history_data,
         ica_store,
         channel_store,
     ):
-        """Update ICA signal visualization."""
+        """
+        Decompose M/EEG signals into independent components using ICA.
+
+        This function validates input parameters, executes the ICA decomposition 
+        (or retrieves it from cache), save computed ICA in cache, and triggers the Dask-based generation
+        of component time-courses for the visualization interface.
+
+        Parameters
+        ----------
+        n_clicks : int
+            Trigger count from the compute button.
+        data_path : str
+            File system path to the raw data.
+        chunk_limits : list of tuples
+            Time boundaries (start, end) for data segments.
+        n_components : int or float
+            Number of principal components to keep, or the fraction of 
+            variance to explain.
+        ica_method : {'fastica', 'infomax', 'picard'}
+            The algorithm used to perform ICA decomposition.
+        max_iter : int
+            Maximum number of iterations for the algorithm to converge.
+        decim : int
+            Temporal decimation factor to speed up computation.
+        history_data : dict
+            Session history log for tracking user actions.
+        ica_store : list
+            Storage for ICA object paths.
+        channel_store : dict
+            Channel groupings and bad channel information.
+
+        Returns
+        -------
+        tuple
+            (Status message, button reset, ICA path list, updated history, components directory).
+        """
         if n_clicks == 0:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -89,9 +122,10 @@ def register_compute_ica():
 
             action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
             history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var)
-            history_data["excluded_ica_components"] = []
+            if str(ica_path) not in ica_store:
+                ica_store.append(str(ica_path))
 
-            return status_msg, 0, [str(ica_path)], history_data, str(components_dir)
+            return status_msg, 0, ica_store, history_data, str(components_dir)
 
         except Exception as e:
             return f"Erreur : {str(e)}", dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -114,7 +148,44 @@ def register_apply_ica_exclusion():
     def _apply_ica_exclusion(
         n_clicks, selected, history_data, data_path, 
         chunk_limits, ica_result_path, freq_data, channel_store):
+        """
+        Apply ICA component exclusion and trigger signal reconstruction caching.
 
+        This callback takes the user-selected independent components (ICs), 
+        merges them with previously excluded components, and reconstructs 
+        the MEG signal. The cleaned signal is then cached on disk in Parquet 
+        format for each data chunk.
+
+        Parameters
+        ----------
+        n_clicks : int
+            Number of times the apply button has been clicked.
+        selected : list of int
+            Component indices currently selected in the UI for exclusion.
+        history_data : dict
+            Store containing the session's processing history and current 
+            excluded components.
+        data_path : str
+            Path to the raw M/EEG data file.
+        chunk_limits : list of tuples
+            Time windows (start, end) used for partitioned processing.
+        ica_result_path : str
+            Path to the .fif file containing the ICA solution.
+        freq_data : dict
+            Frequency filter and resampling settings.
+        channel_store : dict
+            Metadata about channel types and names.
+
+        Returns
+        -------
+        history_data : dict
+            Updated history containing the new cumulative list of 
+            excluded components.
+        status : dbc.Alert
+            Status message indicating success or failure of the operation.
+        clear_selection : list
+            An empty list used to reset the component selection dropdown/checklist.
+        """
         if not ica_result_path:
             return dash.no_update, dbc.Alert("No ICA result selected.", color="warning"), []
         
@@ -129,14 +200,14 @@ def register_apply_ica_exclusion():
             )
     
         history_data = history_data or {}
-        already_excluded = set(history_data.get("excluded_ica_components", []))
+        already_excluded = set(history_data.get("metadata", {}).get("excluded_ica_components", []))
         all_excluded = sorted(already_excluded | set(selected))
 
         prep_raw = pu.sort_filter_resample(data_path, freq_data, channel_store) # Voir Cache ici
 
         for start_time, end_time in chunk_limits:
-            
-            pu.get_reconstructed_meg_dask(
+
+            pu.get_reconstructed_signal_dask(
                 data_path,
                 freq_data,
                 start_time,
@@ -146,7 +217,7 @@ def register_apply_ica_exclusion():
                 prep_raw,
             )
 
-        history_data["excluded_ica_components"] = all_excluded
+        history_data["metadata"]["excluded_ica_components"] = all_excluded
         action = f"Excluded ICA components {all_excluded} from signal.\n"
         history_data = hu.fill_history_data(history_data, "ICA", action)
 
@@ -156,6 +227,8 @@ def register_apply_ica_exclusion():
             color="danger",
             duration=4000,
         )
+
+        print(f"History Store : {history_data}")
 
         return history_data, status, []
 
@@ -170,7 +243,6 @@ def register_fill_ica_results(ica_result_radio_id):
     def fill_ica_results(pathname, ica_store):
         if ica_store is None:
             return dash.no_update
-
         return [{"label": os.path.basename(k), "value": k} for k in ica_store]
     
 def register_plot_ica_maps():
@@ -186,6 +258,29 @@ def register_plot_ica_maps():
     def toggle_components_window(
         open_clicks, close_clicks, current_style, components_dir
     ):
+        """
+        Manage the display state and content of the ICA topographic components side window.
+
+        Parameters
+        ----------
+        open_clicks : int
+            Trigger count from the navigation menu button.
+        close_clicks : int
+            Trigger count from the window's close (X) button.
+        current_style : dict
+            Current CSS style dictionary of the component window container.
+        components_dir : str
+            The filesystem path where ICA component images (PNGs/SVGs) 
+            were saved during the ICA fitting process.
+
+        Returns
+        -------
+        dict
+            Updated CSS style for the window container (toggling 'display').
+        dash.development.base_component.Component
+            HTML content containing either the gallery of component images 
+            or a warning message if no directory is found.
+        """
         triggered = dash.ctx.triggered_id
 
         base_style = {

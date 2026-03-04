@@ -140,7 +140,7 @@ def create_selection(
                 html.Div(
                 [
                     html.Label(
-                        "Select ICA components to remove:",
+                        "Select ICA components to remove (last computed):",
                         style={
                             "fontWeight": "bold",
                             "fontSize": "14px",

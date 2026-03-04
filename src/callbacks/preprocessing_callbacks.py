@@ -66,7 +66,35 @@ def register_preprocess_meg_data():
         heartbeat_ch_name,
         bad_channels,
     ):
-        """Preprocess M/EEG data and save it, store annotations and chunk limits in memory."""
+        """
+        Execute M/EEG preprocessing pipeline and update application state.
+        Preprocessing a novel example resets all history and ICA related components.
+
+        Parameters
+        ----------
+        n_clicks : int
+            Number of times the preprocess button has been clicked.
+        data_path : str
+            Path to the raw M/EEG file or directory.
+        resample_freq : float
+            Target sampling rate in Hz.
+        high_pass_freq : float
+            Lower bound of the bandpass filter in Hz.
+        low_pass_freq : float
+            Upper bound of the bandpass filter in Hz.
+        notch_freq : float
+            Frequency to be removed by the notch filter (e.g., 50 or 60 Hz).
+        heartbeat_ch_name : str
+            Name of the ECG/heartbeat channel for artifact detection.
+        bad_channels : list of str
+            List of channel names to be excluded from processing.
+
+        Returns
+        -------
+        tuple
+            Updated states for Dash components including status messages, 
+            frequency settings, annotations, and navigation path.
+        """
         NO_UPDATE = (dash.no_update,) * 10
 
         if n_clicks > 0:

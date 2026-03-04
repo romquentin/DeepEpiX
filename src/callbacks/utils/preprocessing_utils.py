@@ -75,23 +75,20 @@ def update_chunk_limits(total_duration):
 
 
 def get_cache_filename(
-    data_path, freq_data, start_time, end_time, cache_dir=f"{config.CACHE_DIR}"
+    data_path, freq_data, start_time, end_time, cache_dir=f"{config.CACHE_DIR}", excluded_components = None
 ):
-    # Create a unique hash key
-    hash_input = f"{data_path}_{json.dumps(freq_data, sort_keys=True)}_{start_time}_{end_time}"
-    hash_key = hashlib.md5(hash_input.encode()).hexdigest()
-    return os.path.join(cache_dir, f"{hash_key}.parquet")
-
-def get_cache_filename_cleaned(data_path, freq_data, start_time, end_time, 
-                                excluded_components, cache_dir):
     import json
+    # Create a unique hash key
     hash_input = (
         f"{data_path}_{json.dumps(freq_data, sort_keys=True)}"
         f"_{start_time}_{end_time}"
-        f"_ica_excluded_{sorted(excluded_components)}"
     )
-    hash_key = hashlib.md5(hash_input.encode()).hexdigest()
-    return os.path.join(cache_dir, f"{hash_key}.parquet")
+    if excluded_components is not None:
+        hash_input += f"_ica_excluded_{sorted(excluded_components)}"
+
+    unique_id = hashlib.md5(hash_input.encode()).hexdigest()
+    filename = f"cache_{unique_id}.parquet"
+    return os.path.join(cache_dir, filename)
 
 def get_preprocessed_dataframe_dask(
     data_path,
@@ -103,14 +100,48 @@ def get_preprocessed_dataframe_dask(
     prep_raw=None,
     cache_dir=f"{config.CACHE_DIR}",
 ):
+    """
+    Retrieve or compute a preprocessed Dask DataFrame for a specific time chunk.
+
+    This function implements a disk-based caching strategy. It first checks if a 
+    processed version of the requested data (defined by path, filters, and time) 
+    already exists in Parquet format. If not, it executes a delayed computation 
+    pipeline using Dask, standardizes the signal, and persists the result to disk.
+
+    Parameters
+    ----------
+    data_path : str
+        Path to the source M/EEG data file.
+    freq_data : dict
+        Dictionary containing filter parameters: 'resample_freq', 'low_pass_freq', 
+        'high_pass_freq', and 'notch_freq'.
+    start_time : float
+        The start timestamp (in seconds) for the data crop.
+    end_time : float
+        The end timestamp (in seconds) for the data crop.
+    channels_dict : dict
+        Dictionary mapping channel groups (e.g., 'grad', 'mag') to channel names.
+    excluded_ica_components : list of int, optional
+        Indices of ICA components to be removed from the signal.
+    prep_raw : mne.io.Raw, optional
+        An existing MNE Raw object already filtered/resampled. If None, the 
+        function will load and process the data from `data_path`.
+    cache_dir : str, optional
+        Directory where Parquet cache files are stored. Defaults to config.CACHE_DIR.
+
+    Returns
+    -------
+    dask.dataframe.core.DataFrame
+        A Dask DataFrame containing the preprocessed, standardized signal 
+        indexed by time.
+    """
     os.makedirs(cache_dir, exist_ok=True)
     cu.clear_old_cache_files(cache_dir)
 
     if excluded_ica_components:
-        print(f"Composants ICA exclus demandés : {excluded_ica_components}")
-        cleaned_cache = get_cache_filename_cleaned(
+        cleaned_cache = get_cache_filename(
             data_path, freq_data, start_time, end_time, 
-            excluded_ica_components, cache_dir
+            cache_dir, excluded_ica_components
         )
 
         if os.path.exists(cleaned_cache):
@@ -149,38 +180,6 @@ def get_preprocessed_dataframe_dask(
     return ddf
 
 
-def get_preprocessed_dataframe(data_path, freq_data, start_time, end_time, raw=None):
-    """
-    Preprocess the M/EEG data in chunks and cache them.
-
-    :param data_path: Path to the raw data file.
-    :param freq_data: Dictionary containing frequency parameters for preprocessing.
-    :param chunk_duration: Duration of each chunk in seconds (default is 3 minutes).
-    :param cache: Cache object to store preprocessed chunks.
-    :return: Processed dataframe in pandas format.
-    """
-
-    @cache.memoize(make_name=f"{data_path}:{freq_data}:{start_time}:{end_time}")
-    def process_data_in_chunks(
-        data_path, freq_data, start_time, end_time, prep_raw=None
-    ):
-        try:
-            if prep_raw is None:
-                prep_raw = sort_filter_resample(data_path, freq_data)
-
-            raw_chunk = prep_raw.copy().crop(tmin=start_time, tmax=end_time)
-            raw_df = raw_chunk.to_data_frame(picks="meg", index="time")
-            raw_df_standardized = raw_df - raw_df.mean(axis=0)
-
-            return raw_df_standardized
-
-        except Exception as e:
-            return f"⚠️ Error during processing: {str(e)}"
-
-    # Process and return the result in JSON format
-    return process_data_in_chunks(data_path, freq_data, start_time, end_time, raw)
-
-
 # ICA ########################################################################
 
 
@@ -189,8 +188,51 @@ def get_cache_filename_ica(data_path, start_time, end_time, ica_result_path, cac
     hash_key = hashlib.md5(hash_input.encode()).hexdigest()
     return os.path.join(cache_dir, f"{hash_key}.parquet")
 
-def run_ica_processing(data_path, n_components, ica_method, max_iter, decim, channel_store, cache_dir, ica_store):
+def run_ica_processing(data_path, n_components, 
+                       ica_method, max_iter, decim, 
+                       channel_store, cache_dir, ica_store):
+    """
+    Perform Independent Component Analysis (ICA) on M/EEG data with caching.
 
+    This function checks if an ICA decomposition with the specified parameters 
+    already exists in the cache and session store. If not, it loads the raw data, 
+    applies a necessary 1Hz high-pass filter, fits the ICA model, and exports 
+    diagnostic component plots to disk.
+
+    Parameters
+    ----------
+    data_path : str or Path
+        Path to the raw M/EEG data file.
+    n_components : int or float
+        Number of principal components to utilize. If float, it represents the 
+        fraction of variance to explain.
+    ica_method : {'fastica', 'infomax', 'picard'}
+        The ICA algorithm to employ for decomposition.
+    max_iter : int
+        Maximum number of iterations for the solver to reach convergence.
+    decim : int
+        Downsampling factor (decimation) to reduce computation time during fitting.
+    channel_store : dict
+        Dictionary containing metadata about channels, specifically 'bad' channels.
+    cache_dir : str or Path
+        Directory where the resulting .fif files and diagnostic plots are saved.
+    ica_store : list of str
+        List of previously computed ICA file paths in the current session.
+
+    Returns
+    -------
+    ica_result_path : Path
+        The file path to the saved ICA solution.
+    components_dir : Path
+        The directory path where component diagnostic images are stored.
+    is_from_cache : bool
+        True if the result was loaded from disk, False if newly computed.
+    n_components_actual : int
+        The actual number of components extracted (useful if n_components was a float).
+    explained_variance : float
+        The ratio of variance explained by the kept ICA components relative 
+        to the total PCA variance.
+    """
     ica_result_path = Path(cache_dir) / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica.fif"
     components_dir = Path(cache_dir) / f"{n_components}_{ica_method}_{max_iter}_{decim}-ica-components"
 
@@ -248,7 +290,12 @@ def get_ica_components_dask(
     cache_dir=f"{config.CACHE_DIR}",
 ):
     """
-    Extract ICA source components, resample, and return as a Dask DataFrame.
+    Extract, resample, and cache ICA source time courses for a data segment.
+
+    This function loads an existing ICA solution (if existing),
+    projects the raw data into source space, resamples the resulting 
+    components to 300 Hz, and saves the result as a Parquet file for 
+    fast retrieval.
 
     Parameters
     ----------
@@ -306,7 +353,7 @@ def get_ica_components_dask(
 
     return ddf
 
-def get_reconstructed_meg_dask(
+def get_reconstructed_signal_dask(
         data_path,
         freq_data,
         start_time,
@@ -317,7 +364,12 @@ def get_reconstructed_meg_dask(
         cache_dir=f"{config.CACHE_DIR}",
     ):
     """
-    Clean MEG data using ICA and return a partitioned Dask DataFrame.
+    Apply ICA artifact rejection and cache the reconstructed MEG signal.
+
+    This function performs signal space projection using a pre-computed ICA 
+    solution. It excludes specified artifactual components (e.g., eye blinks, 
+    heartbeat), reconstructs the sensor-level signal, and persists the 
+    result as a Parquet file for high-performance retrieval in the UI.
 
     Parameters
     ----------
@@ -345,9 +397,9 @@ def get_reconstructed_meg_dask(
     """
     os.makedirs(cache_dir, exist_ok=True)
 
-    cache_file = get_cache_filename_cleaned(
+    cache_file = get_cache_filename(
         data_path, freq_data, start_time, end_time,
-        excluded_components, cache_dir
+        cache_dir, excluded_components
     )
 
     if os.path.exists(cache_file):

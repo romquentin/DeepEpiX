@@ -109,7 +109,7 @@ def register_update_ica_components():
         if n_components is None:
             return []
         
-        excluded: set = set(history_data.get("excluded_ica_components", []))
+        excluded: set = set(history_data.get("metadata", {}).get("excluded_ica_components", []))
 
         options = []
         for i in range(n_components):

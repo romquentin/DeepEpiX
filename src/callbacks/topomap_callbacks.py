@@ -31,6 +31,33 @@ def register_display_topomap_on_click():
         channel_store,
         modality,
     ):
+        """
+        Generate and display a sensor topomap based on a clicked time point.
+
+        Parameters
+        ----------
+        click_info : dict
+            Data from the Plotly click event containing coordinates (x is time).
+        data_path : str
+            Path to the raw M/EEG data file.
+        is_button_active : bool
+            State of the topomap toggle button (False usually indicates 'active' outline).
+        page_selection : int or str
+            Index of the current time chunk being viewed.
+        chunk_limits : list of tuples
+            Start and end times for each data chunk.
+        freq_data : dict
+            Preprocessing parameters (resample_freq, filters).
+        channel_store : dict
+            Mapping of channel types and names, including 'bad' channels.
+        modality : str
+            The data modality (e.g., 'meg', 'eeg').
+
+        Returns
+        -------
+        tuple
+            (Time label string, html.Img component for topomap, dash.no_update).
+        """
         if button is False:
             try:
                 start_time = time.time()  # Start timing
