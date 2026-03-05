@@ -67,7 +67,7 @@ def register_preprocess_meg_data():
         bad_channels,
     ):
         """
-        Execute M/EEG preprocessing pipeline and update application state.
+        Execute M/EEG preprocessing pipeline, save mne info & update application state.
         Preprocessing a novel example resets all history and ICA related components.
 
         Parameters
@@ -134,7 +134,7 @@ def register_preprocess_meg_data():
 
                 for chunk_idx in chunk_limits:
                     start_time, end_time = chunk_idx
-                    pu.get_preprocessed_dataframe_dask(
+                    _, prep_raw = pu.get_preprocessed_dataframe_dask(
                         data_path,
                         freq_data,
                         start_time,
@@ -142,6 +142,9 @@ def register_preprocess_meg_data():
                         channels_dict,
                         prep_raw=prep_raw,
                     )
+
+                cache_file = pu.get_cache_filename(data_path, freq_data)
+                pu.save_mne_sidecar(cache_file, prep_raw)
 
                 return (
                     "Preprocessed and saved data",

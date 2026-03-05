@@ -106,7 +106,7 @@ def generate_graph_time_channel(
 
     # Get recording from cache
     start_time = time.time()
-    raw_ddf = pu.get_preprocessed_dataframe_dask(
+    raw_ddf, _ = pu.get_preprocessed_dataframe_dask(
         data_path, freq_data, time_range[0], time_range[1], channels_region, excluded_ica_components=excluded_ica_components,
     )
 

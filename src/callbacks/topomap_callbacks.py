@@ -70,7 +70,7 @@ def register_display_topomap_on_click():
                 load_start_time = time.time()
                 raw = dpu.read_raw(data_path, preload=False, verbose=False)
                 time_range = chunk_limits[int(page_selection)]
-                raw_ddf = pu.get_preprocessed_dataframe_dask(
+                raw_ddf, _ = pu.get_preprocessed_dataframe_dask(
                     data_path, freq_data, time_range[0], time_range[1], channel_store
                 )
                 print(

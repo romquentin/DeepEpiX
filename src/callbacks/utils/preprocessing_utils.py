@@ -75,20 +75,62 @@ def update_chunk_limits(total_duration):
 
 
 def get_cache_filename(
-    data_path, freq_data, start_time, end_time, cache_dir=f"{config.CACHE_DIR}", excluded_components = None
+    data_path, freq_data, start_time=None, end_time=None, 
+    cache_dir=f"{config.CACHE_DIR}", excluded_components=None
 ):
     import json
     # Create a unique hash key
-    hash_input = (
-        f"{data_path}_{json.dumps(freq_data, sort_keys=True)}"
-        f"_{start_time}_{end_time}"
-    )
+    hash_input = f"{data_path}_{json.dumps(freq_data, sort_keys=True)}"
+
+    if start_time is not None and end_time is not None:
+        hash_input += f"_{start_time}_{end_time}"
+
     if excluded_components is not None:
         hash_input += f"_ica_excluded_{sorted(excluded_components)}"
 
     unique_id = hashlib.md5(hash_input.encode()).hexdigest()
     filename = f"cache_{unique_id}.parquet"
     return os.path.join(cache_dir, filename)
+
+def save_mne_sidecar(cache_file, prep_raw):
+    """
+    Save MNE metadata associated with a parquet file as a json file
+    with same name.
+
+    Parameters
+    ----------
+    cache_file : str
+        Path to the reference parquet file
+    prep_raw : mne.io.Raw or dask.delayed
+        Raw MNE Object to extract metadata.
+    """
+
+    meta_path = cache_file.replace(".parquet", "_mne_meta.json")
+    if os.path.exists(meta_path):
+        return  # déjà sauvegardé
+
+    try:
+        raw = prep_raw.compute() if hasattr(prep_raw, "compute") else prep_raw
+    except Exception:
+        return
+
+    channel_types = {
+        ch["ch_name"]: mne.channel_type(raw.info, i)
+        for i, ch in enumerate(raw.info["chs"])
+    }
+
+    meta = {
+        "sfreq": raw.info["sfreq"],
+        "highpass": raw.info["highpass"],
+        "lowpass": raw.info["lowpass"],
+        "channel_types": channel_types,         # {"MEG001": "mag", ...}
+        "ch_names": raw.info["ch_names"],        # channel's order
+        "bads": raw.info["bads"],
+
+    }
+
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
 
 def get_preprocessed_dataframe_dask(
     data_path,
@@ -131,9 +173,11 @@ def get_preprocessed_dataframe_dask(
 
     Returns
     -------
-    dask.dataframe.core.DataFrame
+    ddf : dask.dataframe.core.DataFrame
         A Dask DataFrame containing the preprocessed, standardized signal 
         indexed by time.
+    prep_raw : MNE.Raw or None
+        Preprocessed data as MNE format.
     """
     os.makedirs(cache_dir, exist_ok=True)
     cu.clear_old_cache_files(cache_dir)
@@ -145,14 +189,14 @@ def get_preprocessed_dataframe_dask(
         )
 
         if os.path.exists(cleaned_cache):
-            return dd.read_parquet(cleaned_cache)
+            return dd.read_parquet(cleaned_cache), None
         
     cache_file = get_cache_filename(
         data_path, freq_data, start_time, end_time, cache_dir
     )
 
     if os.path.exists(cache_file):
-        return dd.read_parquet(cache_file)
+        return dd.read_parquet(cache_file), None
 
     # Otherwise, compute and save
     @delayed
@@ -170,6 +214,7 @@ def get_preprocessed_dataframe_dask(
 
     if prep_raw is None:
         prep_raw = load_sort_filter()
+
     raw_df = crop_and_to_df(prep_raw)
     raw_df_std = standardize(raw_df)
 
@@ -177,7 +222,7 @@ def get_preprocessed_dataframe_dask(
     ddf = dd.from_pandas(df, npartitions=10)
     ddf.to_parquet(cache_file)
 
-    return ddf
+    return ddf, prep_raw
 
 
 # ICA ########################################################################

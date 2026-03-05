@@ -12,6 +12,8 @@ def run_model_pipeline(
     threshold,
     adjust_onset,
     channel_groups,
+    signal_cache_path,
+    mne_info_cache_path,
 ):
     
     # === Determine module based on model_name ===
@@ -40,6 +42,8 @@ def run_model_pipeline(
         threshold=threshold,
         adjust_onset=adjust_onset,
         channel_groups=channel_groups,
+        signal_cache_path=signal_cache_path,
+        mne_info_cache_path=mne_info_cache_path
     )
 
 
@@ -51,6 +55,8 @@ if __name__ == "__main__":
     threshold = float(sys.argv[5])  # Convert back to float
     adjust_onset = str(sys.argv[6]).lower() == "true"  # Bool
     channel_groups = ast.literal_eval(sys.argv[7])
+    signal_cache_path = sys.argv[8] if len(sys.argv) > 8 else None
+    mne_info_cache_path = sys.argv[9] if len(sys.argv) > 8 else None
 
     run_model_pipeline(
         model_path,
@@ -60,4 +66,6 @@ if __name__ == "__main__":
         threshold,
         adjust_onset,
         channel_groups,
+        signal_cache_path,
+        mne_info_cache_path
     )

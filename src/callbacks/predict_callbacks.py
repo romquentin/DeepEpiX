@@ -6,10 +6,14 @@ import pandas as pd
 import dash
 from dash import Input, Output, State, html, callback
 import dash_bootstrap_components as dbc
+import json
+import hashlib
 
 import config
 from callbacks.utils import annotation_utils as au
 from callbacks.utils import history_utils as hu
+from callbacks.utils import preprocessing_utils as pu
+from callbacks.utils import predict_utils as pru
 
 
 def register_update_selected_model():
@@ -41,6 +45,23 @@ def register_fill_signal_versions_predict():
         prevent_initial_call=False,
     )
     def _fill_signal_versions_predict(history_data, url):
+        """
+        This function populate signal version options for prediction.
+
+        Parameters
+        ----------
+        history_data : dict or None
+            The data dictionary from the 'history-store' component. 
+            Expected to have structure: 
+            `metadata -> ica_results -> {path: {excluded_components: [...]}}`.
+        url : str
+            The current page path from the 'url' component.
+
+        Returns
+        -------
+        list of dict
+            A list of option dictionaries for the dcc.Dropdown component.
+        """
         options = [{"label": "Filtered signal", "value": "__raw__"}]
         ica_results = (
             (history_data or {})
@@ -99,55 +120,78 @@ def register_execute_predict_script():
         channel_store,
     ):
         """
-        Register the Dash callback for executing model prediction and sensitivity scripts.
+        Execute model inference and sensitivity analysis via external subprocesses.
 
-        This function defines a callback that triggers a backend subprocess to run
-        machine learning inference and/or SmoothGrad analysis based on the selected
-        virtual environment (TensorFlow or PyTorch). It handles input validation,
-        caching logic to avoid redundant computations, and updates the application
-        state with file paths to the generated results.
+        This callback reconstructs the signal of interest by aggregating the packets 
+        (Parquet files) associated with the previously used time windows in the app 
+        or reuses an existing global cache. It then retrieves the MNE metadata (JSON format)
+        before launching the prediction and SmoothGrad scripts in the appropriate virtual environment.
 
         Parameters
         ----------
         n_clicks : int
-            Trigger count from the "Run Prediction" button.
+            The number of times the 'run-prediction-button' has been clicked.
         data_path : str
-            Path to the input data file/subject directory.
+            File system path to the input dataset or subject directory.
+        freq_data : dict
+            Frequency-related parameters for signal preprocessing.
+        channels_dict : dict
+            Mapping of channel names and indices to be used for extraction.
+        chunk_limits : list of int
+            Start and end indices for data slicing.
+        history_data : dict
+            Application session history containing metadata.
+        signal_version : str
+            The specific ICA version to use or '__raw__' for 
+            filtered data.
         model_path : str
-            Path to the selected model file (.h5, .pth, etc.).
+            Path to the selected model file (e.g., .h5 or .pth).
         venv : str
             The selected environment type (e.g., "TensorFlow" or "PyTorch").
         threshold : float
             Confidence threshold for prediction onset.
         sensitivity_analysis : bool
-            Flag to determine if SmoothGrad analysis should be executed.
+            Whether to execute the SmoothGrad attribution script.
         adjust_onset : bool
-            Flag to determine if onset adjustment logic should be applied.
+            Whether to apply post-processing logic to adjust predicted onset 
+            times.
         model_probabilities_store : list
-            Store containing paths to existing prediction CSVs.
+            Cached paths to existing prediction CSV files.
         sensitivity_analysis_store : list
-            Store containing paths to existing SmoothGrad PKL files.
+            Cached paths to existing SmoothGrad pickle files.
         channel_store : str
-            Serialized data representing the selected data channels.
+            Serialized string representation of the selected channels.
 
         Returns
         -------
         prediction_status : str or bool
-            Success status, error message, or True if successful.
+            Feedback message for the user, or True if the process completed 
+            successfully.
         n_clicks : int
-            Resets the button click count to 0.
+            Resets the button click count (returns 0 or dash.no_update).
         display_style : dict
-            CSS style dictionary to toggle visibility of the results container.
+            CSS style dictionary (e.g., {'display': 'block'}) to show/hide 
+            result containers.
         model_probabilities_store : list
-            Updated list of file paths to prediction results.
+            Updated list containing the path to the new prediction CSV.
         sensitivity_analysis_store : list
-            Updated list of file paths to sensitivity analysis results.
+            Updated list containing the path to the new SmoothGrad .pkl file.
 
         Notes
         -----
-        The function uses 'subprocess.run' to execute external Python scripts:
-        1. 'main.py': Handles the primary model inference.
-        2. 'run_smoothgrad.py': Conducts sensitivity analysis (optional).
+        The function follows a strict execution pipeline:
+        1. **Cache Check**: If a prediction with the same model already exists 
+           in the store, it returns early.
+        2. **Signal Management**: The function checks for the existence of a global cache 
+           via an MD5 hash (including data_path, freq_data, and excluded ICA components).
+           If absent, it recreates the signal from the preprocessed time windows 
+           and saves it in Parquet format.
+        3. **MNE Metadata**: Retrieves signal structure information 
+           from a JSON file (`_mne_meta.json`).
+        4. **Inference**: Runs `main.py` using the `subprocess` module in the 
+           environment specified by `venv`.
+        5. **Attribution**: If `sensitivity_analysis` is True, runs 
+           `run_smoothgrad.py`.
         """
         if not n_clicks or n_clicks == 0:
             return None, dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -183,7 +227,7 @@ def register_execute_predict_script():
 
         cache_dir = config.CACHE_DIR
         predictions_csv_path = (
-            cache_dir / f"{os.path.basename(model_path)}_predictions.csv"
+            cache_dir / f"{os.path.basename(model_path)}_predictions.csv"   # Modifier le cache ici pour ajouter info sur signal utilisé
         )
         smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_smoothGrad.pkl"
 
@@ -224,12 +268,25 @@ def register_execute_predict_script():
         print(f"Freq data : {freq_data}")
         print(f"Excluded ica : {excluded_ica}")
 
-        signal = extract_preprocess_signal(data_path, freq_data, channels_dict, chunk_limits, excluded_ica)
+        signal_cache_path = os.path.join(
+            cache_dir, 
+            f"signal_{hashlib.md5(f'{data_path}_{json.dumps(freq_data, sort_keys=True)}_{sorted(excluded_ica) if excluded_ica else []}'.encode()).hexdigest()}.parquet"
+        )
 
-        clean_variance = signal.var().mean()
-        print(f"Variance : {clean_variance}")
-        print(f"Signal shape : {signal.shape}")
-        ls
+        mne_info_path = pu.get_cache_filename(data_path, freq_data).replace(".parquet", "_mne_meta.json")
+
+        if not os.path.exists(signal_cache_path):
+            signal = pru.extract_preprocess_signal(
+                data_path, freq_data, channels_dict, chunk_limits, excluded_ica
+            )
+            clean_variance = signal.var().mean()
+            print(f"Variance : {clean_variance}")
+            print(f"Signal shape : {signal.shape}")
+            signal.to_parquet(signal_cache_path)
+            
+        else:
+            print(f"✅ Signal cache déjà existant — skip extraction ({signal_cache_path})")
+
         # Otherwise, execute model
         if "TensorFlow" in venv:
             ACTIVATE_ENV = str(config.TENSORFLOW_ENV / "bin/python")
@@ -246,6 +303,8 @@ def register_execute_predict_script():
             str(threshold),  # Ensure threshold is passed as a string
             str(adjust_onset),
             str(channel_store),
+            str(signal_cache_path),
+            str(mne_info_path),
         ]
 
         working_dir = str(config.APP_ROOT)
@@ -323,120 +382,6 @@ def register_execute_predict_script():
                 dash.no_update,
             )
         return True, 0, {"display": "block"}, model_probabilities_store, dash.no_update
-
-def extract_preprocess_signal(
-    data_path,
-    freq_data,
-    channels_dict,
-    chunk_limits,
-    excluded_ica_components=None,
-    cache_dir=f"{config.CACHE_DIR}",
-):
-    """
-    Reconstruit le signal complet préprocessé depuis les segments en cache.
-    
-    Tente de retrouver et concaténer tous les segments Parquet correspondant
-    à la configuration (data_path + freq_data + excluded_ica_components).
-    Si aucun segment n'est trouvé, déclenche un preprocessing de rattrapage
-    sur la plage fallback_time_range.
-
-    Parameters
-    ----------
-    data_path : str
-        Chemin vers le fichier M/EEG source.
-    freq_data : dict
-        Paramètres de filtrage : 'resample_freq', 'low_pass_freq', etc.
-    channels_dict : dict
-        Mapping des groupes de canaux vers leurs noms.
-    excluded_ica_components : list of int, optional
-        Composantes ICA à exclure du signal.
-    cache_dir : str, optional
-        Répertoire des fichiers Parquet. Défaut : config.CACHE_DIR.
-    segment_duration : float, optional
-        Durée de chaque segment en secondes. Défaut : 300s.
-    fallback_time_range : tuple of float, optional
-        (start, end) en secondes à utiliser si aucun cache n'est disponible.
-
-    Returns
-    -------
-    pd.DataFrame
-        Signal complet reconstruit, indexé par temps.
-    
-    Raises
-    ------
-    RuntimeError
-        Si aucun cache n'est trouvé et qu'aucun fallback n'est fourni.
-    """
-    import dask.dataframe as dd
-    from callbacks.utils import preprocessing_utils as pu
-
-    os.makedirs(cache_dir, exist_ok=True)
-
-    found_segments, missing_segments = _find_cached_segments(
-            data_path, freq_data, excluded_ica_components,
-            cache_dir, chunk_limits
-        )
-
-    if missing_segments:
-        print(f"⚠️ {len(missing_segments)} segment(s) manquant(s) — preprocessing ciblé...")
-        for chunk in missing_segments:
-            pu.get_preprocessed_dataframe_dask(
-                data_path=data_path,
-                freq_data=freq_data,
-                start_time=chunk["start"],
-                end_time=chunk["end"],
-                channels_dict=channels_dict,
-                excluded_ica_components=excluded_ica_components,
-                cache_dir=cache_dir,
-            )
-
-        # Relecture après preprocessing ciblé
-        found_segments, _ = _find_cached_segments(
-            data_path, freq_data, excluded_ica_components,
-            cache_dir, chunk_limits
-        )
-
-    # === 3. Aucun cache → fallback preprocessing ===
-    if found_segments:
-        ddfs = [dd.read_parquet(seg_path) for seg_path in found_segments]
-        return dd.concat(ddfs).compute()
-
-
-def _find_cached_segments(
-    data_path, freq_data, excluded_ica_components,
-    cache_dir, chunk_limits 
-):
-    """
-    Retrouve les fichiers cache en utilisant les bornes exactes des segments.
-    
-    Parameters
-    ----------
-    chunk_limits : list of [float, float]
-        Liste de [start, end] depuis chunk-limits-store.
-    """
-    from callbacks.utils import preprocessing_utils as pu
-    found_segments = []
-    missing_segments = []
-
-    for chunk in sorted(chunk_limits, key=lambda x: x[0]):
-        start, end = chunk[0], chunk[1]
-
-        candidate = pu.get_cache_filename(
-            data_path, freq_data, start, end,
-            cache_dir, excluded_ica_components or None
-        )
-
-        if os.path.exists(candidate):
-            found_segments.append((start, candidate))
-        else:
-            missing_segments.append(chunk)
-
-    return (
-        [path for _, path in found_segments],
-        missing_segments
-    )
-
-
 
 
 @callback(
