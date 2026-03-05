@@ -114,11 +114,12 @@ def register_display_topomap_on_click():
 
 def register_activate_deactivate_topomap_button():
     @callback(
-        Output("plot-topomap-button", "outline"),
+        [Output("plot-topomap-button", "outline"),
+         Output("plot-topomap-button", "children")],
         Input("plot-topomap-button", "n_clicks"),
         prevent_initial_call=True,
     )
     def _activate_deactivate_topomap_button(n_clicks):
         if n_clicks % 2 == 0:
-            return True
-        return False
+            return True, "Activate"
+        return False, "Deactivate"

@@ -24,7 +24,6 @@ from callbacks.selection_callbacks import (
     register_hide_channel_selection_when_montage,
     register_clear_check_all_annotation_checkboxes,
     register_manage_channels_checklist,
-    register_fill_signal_versions,
     register_offset_display,
     register_page_buttons_display,
     register_modal_annotation_suppression,
@@ -74,6 +73,7 @@ from callbacks.save_callbacks import (
 
 # --- Predict ---
 from callbacks.predict_callbacks import (
+    register_fill_signal_versions_predict,
     register_execute_predict_script,
     register_store_display_prediction,
     register_update_selected_model,
@@ -360,6 +360,7 @@ register_clean_ica_history()
 register_clean_annotation_history()
 
 # --- Predict ---
+register_fill_signal_versions_predict()
 register_execute_predict_script()
 register_store_display_prediction()
 register_update_selected_model()

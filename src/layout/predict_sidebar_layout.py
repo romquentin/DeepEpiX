@@ -4,6 +4,7 @@ from layout.config_layout import (
     BUTTON_STYLES,
     LABEL_STYLES,
     FLEXDIRECTION,
+    BOX_STYLES
 )
 import dash_bootstrap_components as dbc
 from callbacks.utils import predict_utils as pu
@@ -13,6 +14,28 @@ def create_predict():
     layout = (
         html.Div(
             [
+                html.Div(
+                    [
+                        html.Label(
+                            "Select signal to use for prediction:",
+                            style={
+                                "fontWeight": "bold",
+                                "fontSize": "14px",
+                                "marginBottom": "8px",
+                            },
+                        ),
+                        dcc.RadioItems(
+                            id="signal-version-predict",
+                            options=[{"label": "Filtered signal", "value": "__raw__"}],
+                            value="__raw__",
+                            inline=False,
+                            style={"margin": "10px 0", "fontSize": "12px"},
+                            persistence=True,
+                            persistence_type="session",
+                        ),
+                    ],
+                    style=BOX_STYLES["classic"],
+                ),
                 html.Div(
                     [
                         html.Label(

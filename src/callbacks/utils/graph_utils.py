@@ -110,8 +110,6 @@ def generate_graph_time_channel(
         data_path, freq_data, time_range[0], time_range[1], channels_region, excluded_ica_components=excluded_ica_components,
     )
 
-    print(type(raw_ddf))
-
     print(f"Step 1: Preprocessing completed in {time.time() - start_time:.2f} seconds.")
 
     # Filter time range
@@ -128,7 +126,6 @@ def generate_graph_time_channel(
 
         clean_variance = filtered_raw_df.var().mean()
         print(f"Variance : {clean_variance}")
-
         print(type(filtered_raw_df))
         print(filtered_raw_df.shape)
     except Exception:

@@ -33,6 +33,29 @@ def register_update_selected_model():
 
         return environment
 
+def register_fill_signal_versions_predict():
+    @callback(
+        Output("signal-version-predict", "options"),
+        Input("history-store", "data"),
+        Input("url", "pathname"),
+        prevent_initial_call=False,
+    )
+    def _fill_signal_versions_predict(history_data, url):
+        options = [{"label": "Filtered signal", "value": "__raw__"}]
+        ica_results = (
+            (history_data or {})
+            .get("metadata", {})
+            .get("ica_results", {})
+        )
+        for ica_path, ica_meta in ica_results.items():
+            excluded = ica_meta.get("excluded_components", [])
+            if not excluded:
+                continue
+            options.append({
+                "label": f"ICA · {os.path.basename(ica_path)} — excl. {excluded}",
+                "value": ica_path,
+            })
+        return options 
 
 def register_execute_predict_script():
     @callback(
@@ -43,6 +66,11 @@ def register_execute_predict_script():
         Output("sensitivity-analysis-store", "data", allow_duplicate=True),
         Input("run-prediction-button", "n_clicks"),
         State("data-path-store", "data"),
+        State("frequency-store", "data"),
+        State("channel-store", "data"),
+        State("chunk-limits-store", "data"),
+        State("history-store", "data"),
+        State("signal-version-predict", "value"),
         State("model-dropdown", "value"),
         State("venv", "value"),
         State("initial-threshold", "value"),
@@ -56,6 +84,11 @@ def register_execute_predict_script():
     def _execute_predict_script(
         n_clicks,
         data_path,
+        freq_data,
+        channels_dict,
+        chunk_limits,
+        history_data,
+        signal_version,
         model_path,
         venv,
         threshold,
@@ -65,10 +98,60 @@ def register_execute_predict_script():
         sensitivity_analysis_store,
         channel_store,
     ):
+        """
+        Register the Dash callback for executing model prediction and sensitivity scripts.
+
+        This function defines a callback that triggers a backend subprocess to run
+        machine learning inference and/or SmoothGrad analysis based on the selected
+        virtual environment (TensorFlow or PyTorch). It handles input validation,
+        caching logic to avoid redundant computations, and updates the application
+        state with file paths to the generated results.
+
+        Parameters
+        ----------
+        n_clicks : int
+            Trigger count from the "Run Prediction" button.
+        data_path : str
+            Path to the input data file/subject directory.
+        model_path : str
+            Path to the selected model file (.h5, .pth, etc.).
+        venv : str
+            The selected environment type (e.g., "TensorFlow" or "PyTorch").
+        threshold : float
+            Confidence threshold for prediction onset.
+        sensitivity_analysis : bool
+            Flag to determine if SmoothGrad analysis should be executed.
+        adjust_onset : bool
+            Flag to determine if onset adjustment logic should be applied.
+        model_probabilities_store : list
+            Store containing paths to existing prediction CSVs.
+        sensitivity_analysis_store : list
+            Store containing paths to existing SmoothGrad PKL files.
+        channel_store : str
+            Serialized data representing the selected data channels.
+
+        Returns
+        -------
+        prediction_status : str or bool
+            Success status, error message, or True if successful.
+        n_clicks : int
+            Resets the button click count to 0.
+        display_style : dict
+            CSS style dictionary to toggle visibility of the results container.
+        model_probabilities_store : list
+            Updated list of file paths to prediction results.
+        sensitivity_analysis_store : list
+            Updated list of file paths to sensitivity analysis results.
+
+        Notes
+        -----
+        The function uses 'subprocess.run' to execute external Python scripts:
+        1. 'main.py': Handles the primary model inference.
+        2. 'run_smoothgrad.py': Conducts sensitivity analysis (optional).
+        """
         if not n_clicks or n_clicks == 0:
             return None, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        # Validation: Check if all required fields are filled
         if not data_path:
             error_message = "⚠️ Please choose a subject to display on Home page."
             return (
@@ -129,7 +212,24 @@ def register_execute_predict_script():
                     dash.no_update,
                     dash.no_update,
                 )
+            
+        meta = (history_data or {}).get("metadata", {})
+        ica_results = meta.get("ica_results", {})
+        if signal_version and signal_version != "__raw__" and signal_version in ica_results:
+            excluded_ica = ica_results[signal_version].get("excluded_components", [])
+        else:
+            excluded_ica = None
 
+        print(f"Datapath : {data_path}")
+        print(f"Freq data : {freq_data}")
+        print(f"Excluded ica : {excluded_ica}")
+
+        signal = extract_preprocess_signal(data_path, freq_data, channels_dict, chunk_limits, excluded_ica)
+
+        clean_variance = signal.var().mean()
+        print(f"Variance : {clean_variance}")
+        print(f"Signal shape : {signal.shape}")
+        ls
         # Otherwise, execute model
         if "TensorFlow" in venv:
             ACTIVATE_ENV = str(config.TENSORFLOW_ENV / "bin/python")
@@ -223,6 +323,120 @@ def register_execute_predict_script():
                 dash.no_update,
             )
         return True, 0, {"display": "block"}, model_probabilities_store, dash.no_update
+
+def extract_preprocess_signal(
+    data_path,
+    freq_data,
+    channels_dict,
+    chunk_limits,
+    excluded_ica_components=None,
+    cache_dir=f"{config.CACHE_DIR}",
+):
+    """
+    Reconstruit le signal complet préprocessé depuis les segments en cache.
+    
+    Tente de retrouver et concaténer tous les segments Parquet correspondant
+    à la configuration (data_path + freq_data + excluded_ica_components).
+    Si aucun segment n'est trouvé, déclenche un preprocessing de rattrapage
+    sur la plage fallback_time_range.
+
+    Parameters
+    ----------
+    data_path : str
+        Chemin vers le fichier M/EEG source.
+    freq_data : dict
+        Paramètres de filtrage : 'resample_freq', 'low_pass_freq', etc.
+    channels_dict : dict
+        Mapping des groupes de canaux vers leurs noms.
+    excluded_ica_components : list of int, optional
+        Composantes ICA à exclure du signal.
+    cache_dir : str, optional
+        Répertoire des fichiers Parquet. Défaut : config.CACHE_DIR.
+    segment_duration : float, optional
+        Durée de chaque segment en secondes. Défaut : 300s.
+    fallback_time_range : tuple of float, optional
+        (start, end) en secondes à utiliser si aucun cache n'est disponible.
+
+    Returns
+    -------
+    pd.DataFrame
+        Signal complet reconstruit, indexé par temps.
+    
+    Raises
+    ------
+    RuntimeError
+        Si aucun cache n'est trouvé et qu'aucun fallback n'est fourni.
+    """
+    import dask.dataframe as dd
+    from callbacks.utils import preprocessing_utils as pu
+
+    os.makedirs(cache_dir, exist_ok=True)
+
+    found_segments, missing_segments = _find_cached_segments(
+            data_path, freq_data, excluded_ica_components,
+            cache_dir, chunk_limits
+        )
+
+    if missing_segments:
+        print(f"⚠️ {len(missing_segments)} segment(s) manquant(s) — preprocessing ciblé...")
+        for chunk in missing_segments:
+            pu.get_preprocessed_dataframe_dask(
+                data_path=data_path,
+                freq_data=freq_data,
+                start_time=chunk["start"],
+                end_time=chunk["end"],
+                channels_dict=channels_dict,
+                excluded_ica_components=excluded_ica_components,
+                cache_dir=cache_dir,
+            )
+
+        # Relecture après preprocessing ciblé
+        found_segments, _ = _find_cached_segments(
+            data_path, freq_data, excluded_ica_components,
+            cache_dir, chunk_limits
+        )
+
+    # === 3. Aucun cache → fallback preprocessing ===
+    if found_segments:
+        ddfs = [dd.read_parquet(seg_path) for seg_path in found_segments]
+        return dd.concat(ddfs).compute()
+
+
+def _find_cached_segments(
+    data_path, freq_data, excluded_ica_components,
+    cache_dir, chunk_limits 
+):
+    """
+    Retrouve les fichiers cache en utilisant les bornes exactes des segments.
+    
+    Parameters
+    ----------
+    chunk_limits : list of [float, float]
+        Liste de [start, end] depuis chunk-limits-store.
+    """
+    from callbacks.utils import preprocessing_utils as pu
+    found_segments = []
+    missing_segments = []
+
+    for chunk in sorted(chunk_limits, key=lambda x: x[0]):
+        start, end = chunk[0], chunk[1]
+
+        candidate = pu.get_cache_filename(
+            data_path, freq_data, start, end,
+            cache_dir, excluded_ica_components or None
+        )
+
+        if os.path.exists(candidate):
+            found_segments.append((start, candidate))
+        else:
+            missing_segments.append(chunk)
+
+    return (
+        [path for _, path in found_segments],
+        missing_segments
+    )
+
+
 
 
 @callback(

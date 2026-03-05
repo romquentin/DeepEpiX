@@ -169,7 +169,7 @@ def register_fill_signal_versions():
         prevent_initial_call=False,
     )
     def _fill_signal_versions(history_data, url):
-        options = [{"label": "Raw signal", "value": "__raw__"}]
+        options = [{"label": "Filtered signal", "value": "__raw__"}]
 
         ica_results = (
             (history_data or {})

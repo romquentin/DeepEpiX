@@ -275,10 +275,6 @@ def register_update_graph_ica(ica_result_radio_id):
                 "⚠️ You haven't select any ICA Result to plot.",
             )
 
-        """
-        permanently_excluded: set = set(
-            (history_data or {}).get("metadata", {}).get("excluded_ica_components", [])
-        )"""
         all_grayed: list = sorted(permanently_excluded | set(selected_indices or []))
 
         time_range = chunk_limits[int(page_selection)]
