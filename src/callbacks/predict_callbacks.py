@@ -225,11 +225,17 @@ def register_execute_predict_script():
                 dash.no_update,
             )
 
+
+        if signal_version == "__raw__":
+            signal_name = "raw"
+        else:
+            signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
+
         cache_dir = config.CACHE_DIR
         predictions_csv_path = (
-            cache_dir / f"{os.path.basename(model_path)}_predictions.csv"   # Modifier le cache ici pour ajouter info sur signal utilisé
+            cache_dir / f"{os.path.basename(model_path)}_{signal_name}_predictions.csv"
         )
-        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_smoothGrad.pkl"
+        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name}_smoothGrad.pkl"
 
         # If already exists, skip execution
         if (
@@ -264,10 +270,6 @@ def register_execute_predict_script():
         else:
             excluded_ica = None
 
-        print(f"Datapath : {data_path}")
-        print(f"Freq data : {freq_data}")
-        print(f"Excluded ica : {excluded_ica}")
-
         signal_cache_path = os.path.join(
             cache_dir, 
             f"signal_{hashlib.md5(f'{data_path}_{json.dumps(freq_data, sort_keys=True)}_{sorted(excluded_ica) if excluded_ica else []}'.encode()).hexdigest()}.parquet"
@@ -283,8 +285,6 @@ def register_execute_predict_script():
             print(f"Variance : {clean_variance}")
             print(f"Signal shape : {signal.shape}")
             signal.to_parquet(signal_cache_path)
-
-            print(f"Signal cache in DASH : {signal_cache_path}")
             
         else:
             print(f"✅ Signal cache déjà existant — skip extraction ({signal_cache_path})")
@@ -307,6 +307,7 @@ def register_execute_predict_script():
             str(channel_store),
             str(signal_cache_path),
             str(mne_info_path),
+            str(signal_name),
         ]
 
         working_dir = str(config.APP_ROOT)
@@ -338,7 +339,9 @@ def register_execute_predict_script():
                 str(venv),
                 str(cache_dir),
                 str(predictions_csv_path),
-                str(threshold),  # Ensure threshold is passed as a string
+                str(threshold),
+                str(mne_info_path),
+                str(signal_name),
             ]
 
             try:
@@ -359,6 +362,7 @@ def register_execute_predict_script():
                 )
 
             sensitivity_analysis_store = [str(smoothgrad_path)]
+
             if not smoothgrad_path.exists():
                 return (
                     "⚠️ Error running smoothgrad.",
@@ -432,13 +436,20 @@ def update_prediction_table(style, threshold, prediction_csv_path):
     Output("model-spike-name", "value"),
     Input("model-dropdown", "value"),
     Input("adjusted-threshold", "value"),
+    Input("signal-version-predict", "value"),
     prevent_initial_call=True,
 )
-def update_spike_name(model_path, threshold_value):
+def update_spike_name(model_path, threshold_value, signal_version):
+    """ Update predicted spike annotation's name"""
     if model_path is None or threshold_value is None:
         return dash.no_update
     model_name = os.path.splitext(os.path.basename(model_path))[0]
-    return f"{model_name}_{threshold_value}"
+    if signal_version == "__raw__":
+        signal_name = "raw"
+    else:
+        signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
+
+    return f"{model_name}_{threshold_value}_{signal_name}"
 
 
 def register_store_display_prediction():

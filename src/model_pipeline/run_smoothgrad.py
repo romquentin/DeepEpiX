@@ -8,12 +8,37 @@ from scipy import signal
 import tensorflow as tf
 import tensorflow.keras as keras
 import model_pipeline.utils as utils
+import json
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 # Computes the SmoothGrad input (repeat nb_repeat_sg times the original signal while adding noise)
 def generate_noisy_input(f, win_idx, nb_repeat_sg, noise_val, dim):
+    """
+    Load a window and generate noisy copies for SmoothGrad inference.
+
+    Parameters
+    ----------
+    f : file object
+        Opened binary file containing MEG windows in float32 format.
+    win_idx : int
+        Index of the window to retrieve.
+    nb_repeat_sg : int
+        Number of noisy copies to generate for SmoothGrad.
+    noise_val : float
+        Standard deviation of the Gaussian noise to add.
+    dim : tuple of int
+        Shape of a single window as (n_channels, n_times).
+
+    Returns
+    -------
+    sample_non_norm : numpy.ndarray
+        Raw (non-normalized) window of shape (n_channels, n_times).
+    noisy_images : numpy.ndarray
+        Normalized window repeated and perturbed with Gaussian noise,
+        shape (nb_repeat_sg, n_channels, n_times).
+    """
 
     f.seek(dim[0] * dim[1] * win_idx * 4)
     sample_non_norm = np.fromfile(f, dtype="float32", count=dim[0] * dim[1])
@@ -28,15 +53,32 @@ def generate_noisy_input(f, win_idx, nb_repeat_sg, noise_val, dim):
     repeated_images = np.repeat(sample, nb_repeat_sg, axis=0)
     noise = np.random.normal(0, noise_val, repeated_images.shape).astype(np.float32)
 
-    noisy_images = repeated_images + noise
-
-    # Returns original signal over window win_idx and SmoothGrad input
-    return sample_non_norm, noisy_images
+    return sample_non_norm, repeated_images + noise
 
 
-# Computes the averaged gradient over the SmoothGrad inputs corresponsing to a given window
 def get_av_grad(noisy_images, model, expected_output, num_samples):
+    """
+    Compute averaged SmoothGrad gradients and mean prediction over noisy inputs.
 
+    Parameters
+    ----------
+    noisy_images : numpy.ndarray
+        Noisy copies of the input window, shape (nb_repeat_sg, n_channels, n_times).
+    model : tf.keras.Model
+        Trained model used for inference and gradient computation.
+    expected_output : numpy.ndarray
+        Ground truth labels used to compute the loss.
+    num_samples : int
+        Number of noisy samples per original window, used to reshape gradients.
+
+    Returns
+    -------
+    averaged_grads : tf.Tensor
+        Absolute gradients averaged across noisy samples,
+        shape (1, n_channels, n_times).
+    mean_prediction : float
+        Mean prediction score across all noisy inputs.
+    """
     with tf.GradientTape() as tape:
         inputs = tf.cast(noisy_images, tf.float32)
         tape.watch(inputs)
@@ -45,42 +87,47 @@ def get_av_grad(noisy_images, model, expected_output, num_samples):
             apply_class_balancing=True, alpha=0.25, gamma=2
         )
         loss = loss_func(expected_output, predictions)
-        # loss = model.compute_loss(inputs, expected_output, predictions)
-        grads = tape.gradient(loss, inputs)
-
+        
+    grads = tape.gradient(loss, inputs)
     grads_per_image = tf.reshape(grads, (-1, num_samples, *grads.shape[1:]))
-    averaged_grads = tf.abs(grads_per_image)
-    averaged_grads = tf.reduce_mean(averaged_grads, axis=1)
+    averaged_grads = tf.reduce_mean(tf.abs(grads_per_image), axis=1)
 
     # Returns averaged gradient and averaged predictions over the SmoothGrad inputs
     return averaged_grads, np.mean(predictions.numpy())
 
 
-# # Postprocessing of the averaged gradient
-# def postprocess_grad(av_grad, axis = 0):
-#     av_grad_np = av_grad[0,:,:].numpy() #already abs values
-#     mean = np.mean(av_grad_np, axis=axis, keepdims=True)
-#     std = np.std(av_grad_np, axis=axis, keepdims=True)
-#     norm_grads = np.abs((av_grad_np - mean)/std + 1e-8)
-#     # Returns normalized averaged gradient
-#     return norm_grads
-
-
 def postprocess_grad(av_grad):
-    av_grad_np = av_grad[0, :, :].numpy()  # already abs values.
-    thresh = np.quantile(av_grad_np, 0.75)
-    av_grad_np[av_grad_np < thresh] = np.min(av_grad_np[av_grad_np > thresh]) / 2
-    # fmt: off
-    av_grad_np[av_grad_np > thresh] = 0.25 * (
-        (av_grad_np[av_grad_np > thresh] - np.min(av_grad_np[av_grad_np > thresh])) / (np.max(av_grad_np[av_grad_np > thresh]) - np.min(av_grad_np[av_grad_np > thresh]))
-    ) + 0.75
-    # fmt: on
-    av_grad_np = signal.wiener(av_grad_np, (7, 7))
-    return av_grad_np
+    """
+    Postprocess averaged gradients by thresholding, rescaling, and smoothing.
 
+    Values below the 75th percentile are suppressed to near-zero, while
+    values above are rescaled to [0.75, 1.0]. A Wiener filter is then
+    applied to smooth the result spatially.
+
+    Parameters
+    ----------
+    av_grad : tf.Tensor
+        Averaged absolute gradients of shape (1, n_channels, n_times).
+
+    Returns
+    -------
+    numpy.ndarray
+        Postprocessed gradient map of shape (n_channels, n_times).
+    """
+    av_grad_np = av_grad[0, :, :].numpy()
+
+    thresh = np.quantile(av_grad_np, 0.75)
+    above = av_grad_np > thresh
+    av_grad_np[~above] = np.min(av_grad_np[above]) / 2
+
+    av_grad_np[above] = 0.25 * (
+        (av_grad_np[above] - np.min(av_grad_np[above]))
+        / (np.max(av_grad_np[above]) - np.min(av_grad_np[above]))
+    ) + 0.75
+
+    return signal.wiener(av_grad_np, (7, 7))
 
 # MAIN
-
 
 def run_smoothgrad(
     model_file,
@@ -88,30 +135,32 @@ def run_smoothgrad(
     path_to_files,
     y_pred_path,
     threshold,
-    dim,
+    mne_info_cache_path,
     nb_repeat_sg,
-    sfreq,
     window_size,
     noise_val,
     total_length,
     overlap,
+    signal_name,
 ):
+    with open(mne_info_cache_path, "r") as f:
+        metadata = json.load(f)
+
+    sfreq = metadata['sfreq']
+    dim = (int(sfreq * window_size), 275, 1)
 
     f = open(f"{path_to_files}/data_raw_windows_bi")
     blocks_file = utils.load_obj("data_raw_blocks.pkl", path_to_files)
     data_file = utils.load_obj("data_raw.pkl", path_to_files)
     full_result = pd.read_csv(y_pred_path)
-    # Convert 'probas' column to NumPy array
-    y_pred = full_result["probas"].to_numpy()  # or df["probas"].values
+    y_pred = full_result["probas"].to_numpy()
 
     total_nb_windows = len(blocks_file)
     total_nb_points = data_file["m/eeg"][0].shape[1]
 
-    # Instantiate arrays to store the full signal portion between start_win and stop_win and the corresponding gradient values
     full_grads = np.zeros((total_nb_points, dim[1]))
 
     my_labels = np.ones((nb_repeat_sg, 1))
-
     dim = (int(sfreq * window_size), dim[1])
 
     # Model Selection
@@ -143,7 +192,7 @@ def run_smoothgrad(
 
                 full_grads[start:end, :] = norm_grads[:, :]
 
-    grad_path = f"{path_to_files}/{os.path.basename(model_file)}_smoothGrad.pkl"
+    grad_path = f"{path_to_files}/{os.path.basename(model_file)}_{signal_name}_smoothGrad.pkl"
     with open(grad_path, "wb") as f:
         pickle.dump(full_grads, f)
 
@@ -154,18 +203,19 @@ if __name__ == "__main__":
     path_to_files = sys.argv[3]
     y_pred_path = sys.argv[4]
     threshold = float(sys.argv[5])  # Convert back to float
+    mne_info_cache_path = sys.argv[6] if len(sys.argv) > 6 else None
+    signal_name = sys.argv[7]
 
     # Parameters
     window_size = 0.2
-    sfreq = 150
-    freq = [1, 70]
-    dim = (int(sfreq * window_size), 23, 1)
-
     nb_repeat_sg = 10
     noise_val = 0.1
     centre_unique = 12
     overlap = 9
     total_lenght = centre_unique + overlap
+
+
+    print("COUCOU SMOOTHGRAD")
 
     run_smoothgrad(
         model_path,
@@ -173,11 +223,11 @@ if __name__ == "__main__":
         path_to_files,
         y_pred_path,
         threshold,
-        dim,
+        mne_info_cache_path,
         nb_repeat_sg,
-        sfreq,
         window_size,
         noise_val,
         total_lenght,
         overlap,
+        signal_name,
     )

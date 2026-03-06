@@ -29,8 +29,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 # === Helper functions specific to models ===
-
-
 def prepare_data(
     raw,
     output_path,
@@ -121,7 +119,7 @@ def get_onsets(output_path, sfreq):
     return onsets
 
 
-def save_predictions(output_path, model_name, onsets, y_pred_probas):
+def save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas):
     """Save predictions into a CSV file compatible with MNE annotations."""
     df = pd.DataFrame(
         {
@@ -130,9 +128,14 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
             "probas": y_pred_probas,
         }
     )
-    output_file = os.path.join(
-        output_path, f"{os.path.basename(model_name)}_predictions.csv"
-    )
+    if signal_name is not None:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_{signal_name}_predictions.csv"
+        )
+    else:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_predictions.csv"
+        )
     df.to_csv(output_file, index=False)
     return output_file
 
@@ -145,6 +148,7 @@ def test_model(
     mne_info_cache_path,
     adjust_onset=True,
     channel_groups=None,
+    signal_name=None,
 ):
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
     raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
@@ -183,4 +187,4 @@ def test_model(
         onsets = get_onsets(output_path, sfreq)
 
     # 6. Save predictions
-    return save_predictions(output_path, model_name, onsets, y_pred_probas)
+    return save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas)

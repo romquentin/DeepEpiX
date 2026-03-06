@@ -114,8 +114,24 @@ def load_raw_from_parquet(parquet_path: str, json_path: str) -> mne.io.RawArray:
     return mne.io.RawArray(data, info, verbose=False), metadata
 
 
-# tentative function to interpolate missing channels using mne
 def interpolate_missing_channels(raw, good_channels):
+    """
+    Interpolate missing MEG channels from a known good channel layout.
+
+    Parameters
+    ----------
+    raw : mne.io.RawArray
+        The raw MEG data object with potentially missing channels.
+    good_channels : dict
+        Dictionary mapping channel base names to their 3D sensor locations
+        (as numpy arrays), representing the full expected channel layout.
+
+    Returns
+    -------
+    mne.io.RawArray
+        Raw object with missing channels interpolated and reordered
+        to match the full good_channels layout.
+    """
 
     def get_base(name):
         return name.split()[0].split("-")[0].strip()
@@ -131,7 +147,7 @@ def interpolate_missing_channels(raw, good_channels):
     # Create fake channels for missing ones
     for miss in missing_basenames:
 
-        to_copy = raw.info["ch_names"][71]  # just an existing template channel
+        to_copy = raw.info["ch_names"][71]
         new_channel = raw.copy().pick([to_copy])
         new_channel.rename_channels({to_copy: miss})
         new_raw.add_channels([new_channel], force_update_info=True)
@@ -152,21 +168,26 @@ def interpolate_missing_channels(raw, good_channels):
 
 def fill_missing_channels(raw, target_channel_count):
     """
-    Fills missing channels by duplicating existing channels at regular intervals
-    and inserting them next to the originals they are copied from.
+    Fill missing channels by duplicating existing ones at regular intervals.
 
-    Parameters:
-    - raw (mne.io.Raw): The original raw object.
-    - target_channel_count (int): Desired total number of channels.
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        The original raw object.
+    target_channel_count : int
+        Desired total number of channels.
 
-    Returns:
-    - numpy.ndarray: Data with inserted channels (shape: target_channel_count, n_times).
+    Returns
+    -------
+    numpy.ndarray
+        Data array with inserted channels, shape (target_channel_count, n_times).
+        Returns original data unchanged if current count >= target.
     """
     data = raw.get_data()
     current_count = data.shape[0]
 
     if current_count >= target_channel_count:
-        return data  # Nothing to add
+        return data
 
     n_missing = target_channel_count - current_count
 
@@ -180,8 +201,7 @@ def fill_missing_channels(raw, target_channel_count):
         if i in duplicate_indices:
             new_data.append(data[i])  # Insert duplicate right after
 
-    full_data = np.stack(new_data, axis=0)
-    return full_data
+    return np.stack(new_data, axis=0)
 
 
 def compute_gfp(window):

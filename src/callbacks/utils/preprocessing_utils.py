@@ -459,8 +459,6 @@ def get_reconstructed_signal_dask(
     non_meg_channels = [ch for ch in raw_chunk.ch_names 
                         if ch not in raw_chunk.copy().pick(["meg"]).ch_names]
     
-    print(f"Non Meg channels : {non_meg_channels}")
-    
     raw_meg = raw_chunk.copy().pick(["meg"])
     raw_non_meg = raw_chunk.copy().pick_channels(non_meg_channels) if non_meg_channels else None
 

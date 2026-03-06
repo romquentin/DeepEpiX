@@ -14,6 +14,7 @@ def run_model_pipeline(
     channel_groups,
     signal_cache_path,
     mne_info_cache_path,
+    signal_name,
 ):
     
     # === Determine module based on model_name ===
@@ -41,6 +42,7 @@ def run_model_pipeline(
         mne_info_cache_path=mne_info_cache_path,
         adjust_onset=adjust_onset,
         channel_groups=channel_groups,
+        signal_name=signal_name,
     )
 
 
@@ -54,6 +56,7 @@ if __name__ == "__main__":
     channel_groups = ast.literal_eval(sys.argv[7])
     signal_cache_path = sys.argv[8] if len(sys.argv) > 8 else None
     mne_info_cache_path = sys.argv[9] if len(sys.argv) > 6 else None
+    signal_name = sys.argv[10]
 
     run_model_pipeline(
         model_path,
@@ -65,4 +68,5 @@ if __name__ == "__main__":
         channel_groups,
         signal_cache_path,
         mne_info_cache_path,
+        signal_name,
     )
