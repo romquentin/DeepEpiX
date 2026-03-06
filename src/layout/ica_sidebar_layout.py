@@ -29,7 +29,7 @@ def create_compute():
                     ),
                     dbc.Tooltip(
                         """
-                n_components : int | float | None\n
+                n_components : int | float\n
 
                 Number of principal components (from the pre-whitening PCA step) 
                 that are passed to the ICA algorithm during fitting.
@@ -37,7 +37,6 @@ def create_compute():
                 - int: Must be >1 and ≤ number of channels.
                 - float (0 < x < 1): Selects smallest number of components needed 
                 to exceed this cumulative variance threshold.
-                - None: Uses 0.999999 for numerical stability with rank-deficient data.
                 """,
                         target="n-components",
                         placement="right",
@@ -69,11 +68,6 @@ def create_compute():
                 - picard: Picard algorithm, optimized for speed and stability.
 
                 Choose depending on speed vs. accuracy needs.
-
-                - Use the `fit_params` argument to set additional parameters.
-                - Specifically, if you want Extended Infomax, set `method='infomax'` and `fit_params=dict(extended=True)`
-                (this also works for method='picard').
-                - Defaults to 'fastica'. 
                 """,
                         target="ica-method",
                         placement="right",

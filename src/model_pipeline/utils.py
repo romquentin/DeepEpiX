@@ -4,6 +4,8 @@ import pickle
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 import mne
+import json
+import pandas as pd
 
 
 # read and write pickle files
@@ -70,6 +72,46 @@ def read_raw(data_path, preload, verbose, bad_channels=None):
         raw.drop_channels(bad_channels)
 
     return raw
+
+def load_raw_from_parquet(parquet_path: str, json_path: str) -> mne.io.RawArray:
+    """
+    Reconstruct an MNE RawArray using .parquet & .jsons files.
+
+    Parquet file must contain channels as columns & samples as rows.
+    Json file must contain : sfreq, ch_names, ch_types & bads.
+
+    Parameters
+    ----------
+    parquet_path: str
+        Path to the .parquet file containing signal values.
+    json_path: str
+        Path to the .json file containing mne metadata.
+
+    Returns
+    -------
+    mne.io.RawArray
+        MNE instance of the reconstructed signal.
+    metadata: dict
+        Dictionnary containing signal metadatas.
+    """
+    df = pd.read_parquet(parquet_path)
+    data = df.values.T  # shape: (n_channels, n_times)
+
+    with open(json_path, "r") as f:
+        metadata = json.load(f)
+
+    ch_names = metadata["ch_names"]
+    channel_types_dict = metadata["channel_types"]
+    ch_types = [channel_types_dict[ch] for ch in ch_names]
+
+    info = mne.create_info(
+        ch_names=ch_names,
+        sfreq=metadata["sfreq"],
+        ch_types=ch_types,
+    )
+    info["bads"] = metadata.get("bads", [])
+
+    return mne.io.RawArray(data, info, verbose=False), metadata
 
 
 # tentative function to interpolate missing channels using mne

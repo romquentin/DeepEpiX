@@ -283,6 +283,8 @@ def register_execute_predict_script():
             print(f"Variance : {clean_variance}")
             print(f"Signal shape : {signal.shape}")
             signal.to_parquet(signal_cache_path)
+
+            print(f"Signal cache in DASH : {signal_cache_path}")
             
         else:
             print(f"✅ Signal cache déjà existant — skip extraction ({signal_cache_path})")

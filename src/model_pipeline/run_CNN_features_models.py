@@ -22,6 +22,7 @@ from model_pipeline.utils import (
     load_obj,
     compute_gfp,
     find_peak_gfp,
+    load_raw_from_parquet,
 )
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -31,10 +32,9 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 def prepare_data(
-    subject,
+    raw,
     output_path,
     channel_groups,
-    freq,
     sfreq,
     window_size,
     spike_spacing_from_borders,
@@ -42,18 +42,19 @@ def prepare_data(
     """Prepare data matrices, create windows, and generate test IDs."""
     with open("good_channels_dict.pkl", "rb") as f:
         good_channels = pickle.load(f)
+
     save_data_matrices(
-        subject,
+        raw,
         output_path,
         channel_groups,
         good_channels,
         "mag",
-        (freq[0], freq[1]),
-        sfreq,
     )
+
     total_nb_windows = create_windows(
         output_path, window_size, False, sfreq, spike_spacing_from_borders
     )
+
     return generate_database(total_nb_windows)
 
 
@@ -139,28 +140,26 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
 # === Main function ===
 def test_model(
     model_name,
-    model_type,
-    subject,
     output_path,
-    threshold=0.5,
+    signal_cache_path,
+    mne_info_cache_path,
     adjust_onset=True,
     channel_groups=None,
 ):
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
+    raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
 
     # Params
     window_size = 0.2
-    sfreq = 150
-    freq = [1, 70]
+    sfreq = metadata['sfreq']
     dim = (int(sfreq * window_size), 275, 1)
     spike_spacing_from_borders = 0.03
 
     # 1. Data preparation
     X_test_ids = prepare_data(
-        subject,
+        raw,
         output_path,
         channel_groups,
-        freq,
         sfreq,
         window_size,
         spike_spacing_from_borders,

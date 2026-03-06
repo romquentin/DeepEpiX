@@ -1,8 +1,8 @@
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
+import mne
 from model_pipeline.utils import (
-    read_raw,
     interpolate_missing_channels,
     fill_missing_channels,
     save_obj,
@@ -12,13 +12,11 @@ from model_pipeline.utils import (
 
 
 def save_data_matrices(
-    subject_path: str,
+    raw: mne.io.RawArray,
     output_dir: str,
     channel_groups: dict,
     good_channels: dict,
     channel_type: str = "mag",
-    freq: tuple = (0.5, 50),
-    sfreq: int = 150,
 ) -> None:
     """
     Apply preprocessing, extract MEG/EEG data, and save it in a pickle file.
@@ -31,19 +29,7 @@ def save_data_matrices(
         channel_type: Channel type to pick ("mag" or "eeg").
         freq: Tuple (low_cutoff, high_cutoff) for bandpass filter.
     """
-    subject_path = Path(subject_path)
     output_dir = Path(output_dir)
-
-    raw = read_raw(
-        subject_path,
-        preload=True,
-        verbose=False,
-        bad_channels=channel_groups.get("bad", []),
-    )
-
-    # Filtering and resampling
-    raw.filter(freq[0], freq[1], n_jobs=8)
-    raw.resample(sfreq).pick([channel_type])
 
     if channel_type == "mag":
         first_key = next(iter(channel_groups), None)
@@ -51,7 +37,7 @@ def save_data_matrices(
         if base_name in good_channels:
             print("letsgo here")
             raw = interpolate_missing_channels(raw, good_channels)
-            data = {"m/eeg": [raw.get_data()], "file": [str(subject_path)]}
+            data = {"m/eeg": [raw.get_data()]}
 
         else:
             channels_order = [
@@ -61,9 +47,8 @@ def save_data_matrices(
                 for ch in chans
             ]
             raw.reorder_channels(channels_order)
-
             meg_data = fill_missing_channels(raw, len(good_channels))
-            data = {"m/eeg": [meg_data], "file": [str(subject_path)]}
+            data = {"m/eeg": [meg_data]}
 
     elif channel_type == "eeg":
         channels_order = [
@@ -75,10 +60,10 @@ def save_data_matrices(
         raw.reorder_channels(channels_order)
 
         meg_data = fill_missing_channels(raw, len(good_channels))
-        data = {"m/eeg": [meg_data], "file": [str(subject_path)]}
+        data = {"m/eeg": [meg_data]}
 
     else:
-        raise ValueError(f"Unsupported file type: {subject_path}")
+        raise ValueError(f"Unsupported channel_type: {channel_type}")
 
     save_obj(data, "data_raw", output_dir)
 

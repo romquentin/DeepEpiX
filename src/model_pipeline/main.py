@@ -36,27 +36,24 @@ def run_model_pipeline(
     # === Run the model ===
     return test_model(
         model_name=model_name,
-        model_type=model_type,
-        subject=subject,
         output_path=output_path,
-        threshold=threshold,
+        signal_cache_path=signal_cache_path,
+        mne_info_cache_path=mne_info_cache_path,
         adjust_onset=adjust_onset,
         channel_groups=channel_groups,
-        signal_cache_path=signal_cache_path,
-        mne_info_cache_path=mne_info_cache_path
     )
 
 
 if __name__ == "__main__":
     model_path = sys.argv[1]
-    model_type = sys.argv[2]
+    model_type = sys.argv[2]  # TensorFlow or Pytorch
     data_path = sys.argv[3]
     results_path = sys.argv[4]
     threshold = float(sys.argv[5])  # Convert back to float
     adjust_onset = str(sys.argv[6]).lower() == "true"  # Bool
     channel_groups = ast.literal_eval(sys.argv[7])
     signal_cache_path = sys.argv[8] if len(sys.argv) > 8 else None
-    mne_info_cache_path = sys.argv[9] if len(sys.argv) > 8 else None
+    mne_info_cache_path = sys.argv[9] if len(sys.argv) > 6 else None
 
     run_model_pipeline(
         model_path,
@@ -67,5 +64,5 @@ if __name__ == "__main__":
         adjust_onset,
         channel_groups,
         signal_cache_path,
-        mne_info_cache_path
+        mne_info_cache_path,
     )

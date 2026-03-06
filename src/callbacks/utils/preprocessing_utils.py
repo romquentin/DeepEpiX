@@ -374,11 +374,11 @@ def get_ica_components_dask(
         return dd.read_parquet(cache_file)
 
     if raw is None:
-        raw = dpu.read_raw(data_path, preload=True, verbose=False).pick_types(meg=True)
+        raw = dpu.read_raw(data_path, preload=True, verbose=False).pick(["meg"])
         raw.filter(l_freq=1.0, h_freq=None)
 
     raw = raw.copy().crop(tmin=start_time, tmax=end_time)
-    raw.pick_types(meg=True)
+    raw.pick(["meg"])
 
     ica = mne.preprocessing.read_ica(ica_result_path)
     sources = ica.get_sources(raw)
@@ -439,6 +439,11 @@ def get_reconstructed_signal_dask(
     -------
     dask.dataframe.DataFrame
         The cleaned data represented as a partitioned Dask DataFrame.
+
+    Notes
+    -----
+    The function currently apply ICA exclusion on MEG channels only and
+    leave others as there original values.
     """
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -451,13 +456,24 @@ def get_reconstructed_signal_dask(
         return dd.read_parquet(cache_file)
     
     raw_chunk = raw.copy().crop(tmin=start_time, tmax=end_time)
-    raw_chunk.pick_types(meg=True)
+    non_meg_channels = [ch for ch in raw_chunk.ch_names 
+                        if ch not in raw_chunk.copy().pick(["meg"]).ch_names]
+    
+    print(f"Non Meg channels : {non_meg_channels}")
+    
+    raw_meg = raw_chunk.copy().pick(["meg"])
+    raw_non_meg = raw_chunk.copy().pick_channels(non_meg_channels) if non_meg_channels else None
 
     ica = mne.preprocessing.read_ica(ica_result_path)
     ica.exclude = list(excluded_components)
-    ica.apply(raw_chunk)
+    ica.apply(raw_meg)
 
-    cleaned_df = raw_chunk.to_data_frame(index="time")
+    if raw_non_meg is not None:
+        cleaned_raw = raw_meg.add_channels([raw_non_meg])
+    else:
+        cleaned_raw = raw_meg
+
+    cleaned_df = cleaned_raw.to_data_frame(index="time")
     ddf = dd.from_pandas(cleaned_df, npartitions=10)
     ddf.to_parquet(cache_file, overwrite=True)
 

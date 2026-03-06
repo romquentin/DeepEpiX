@@ -58,6 +58,8 @@ pooch==1.8.2
 product_key_memory==0.3.0
 propcache==0.4.1
 protobuf==6.33.0
+pyarrow==20.0.0
+pyarrow-hotfix==0.7
 Pygments==2.19.2
 pymatreader==1.1.0
 pyparsing==3.2.5
