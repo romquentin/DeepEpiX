@@ -456,11 +456,15 @@ def get_reconstructed_signal_dask(
         return dd.read_parquet(cache_file) #type: ignore
     
     raw_chunk = raw.copy().crop(tmin=start_time, tmax=end_time)
-    non_meg_channels = [ch for ch in raw_chunk.ch_names 
-                        if ch not in raw_chunk.copy().pick(["meg"]).ch_names]
-    
-    raw_meg = raw_chunk.copy().pick(["meg"])
-    raw_non_meg = raw_chunk.copy().pick_channels(non_meg_channels) if non_meg_channels else None
+
+    meg_picks = mne.pick_types(raw_chunk.info, meg=True, eeg=False, stim=False, exclude=[])
+    non_meg_picks = mne.pick_types(raw_chunk.info, meg=False, eeg=True, stim=True, misc=True, exclude=[])
+
+    raw_meg = raw_chunk.copy().pick(picks=meg_picks)
+    if len(non_meg_picks) > 0:
+        raw_non_meg = raw_chunk.copy().pick(picks=non_meg_picks)
+    else:
+        raw_non_meg = None
 
     ica = mne.preprocessing.read_ica(ica_result_path)
     ica.exclude = list(excluded_components)

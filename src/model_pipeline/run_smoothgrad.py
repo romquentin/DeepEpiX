@@ -12,7 +12,6 @@ import json
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
-
 # Computes the SmoothGrad input (repeat nb_repeat_sg times the original signal while adding noise)
 def generate_noisy_input(f, win_idx, nb_repeat_sg, noise_val, dim):
     """

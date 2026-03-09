@@ -186,9 +186,18 @@ def create_selection(
                         n_clicks=0,
                         style=BUTTON_STYLES["big"],
                     ),
-                    html.Div(id="exclusion-status", style={"marginTop": "10px"})
                 ],
                 style=BOX_STYLES["classic"],
+                ),
+                dcc.Loading(
+                    id="loading-exclusion",
+                    type="default",
+                    children=[
+                        html.Div(
+                            id="exclusion-status",
+                            style={"marginTop": "10px", "marginBottom": "20px"},
+                        )
+                    ],
                 ),
             ]
         )
