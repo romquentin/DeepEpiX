@@ -20,32 +20,70 @@ def save_data_matrices(
     """
     Extract MEG/EEG data from a RawArray and save it as a pickle file.
 
+    Depending on whether the raw channel layout matches the reference
+    ``good_channels`` layout, this function either:
+
+    - Interpolates missing channels using spherical spline interpolation
+      (when channel names overlap with ``good_channels``), or
+    - Pads the data to the target channel count by duplicating existing
+      channels at regular intervals (fallback path).
+
+    The resulting data array of shape ``(n_channels, n_times)`` is saved
+    under the key ``"m/eeg"`` as a pickle file named ``data_raw``.
+
     Parameters
     ----------
     raw : mne.io.RawArray
-        Preprocessed MNE Raw object.
-    output_dir : str
+        Preprocessed MNE Raw object. Channel names may include suffixes
+        (e.g. ``"MLC21-4408"``), which are stripped to base names
+        (e.g. ``"MLC21"``) before comparison with ``good_channels``.
+    output_dir : dict[str, list[str]]
         Directory where processed data will be stored.
     channel_groups : dict
-        Channel groups mapping group names to channel lists.
-        Must include a "bad" key if bad channels are present.
-    good_channels : dict
-        Reference channel layout mapping base names to sensor locations.
+        Mapping from group name to list of channel names belonging to that
+        group. Groups named ``"bad"`` and ``"EEG"`` are excluded when
+        building the channel order for the ``mag`` fallback path.
+        The ``"bad"`` group is excluded for the ``eeg`` fallback path.
+    good_channels : dict[str, numpy.ndarray]
+        Reference channel layout mapping base channel names to their sensor
+        position vectors of shape (12,), as expected by MNE (position +
+        coil orientation). Used both to detect missing channels and to assign
+        sensor locations before interpolation.
     channel_type : str, optional
-        Channel type to process, either "mag" or "eeg". Defaults to "mag".
+        Type of channels to process. Must be either ``"mag"`` (default) or
+        ``"eeg"``. Controls which groups are excluded when building the
+        fallback channel order.
+
+    Returns
+    -------
+    None
+        Data is saved to disk as a pickle file. The saved object is a dict
+        of the form {"m/eeg": [ndarray]}, where the array has shape
+        (n_channels, n_times) with n_channels == len(good_channels).
 
     Raises
     ------
     ValueError
         If channel_type is not "mag" or "eeg".
+
+    Notes
+    -----
+    The interpolation path calls :func:`interpolate_missing_channels`, which
+    uses MNE's spherical spline interpolation centered at origin=(0, 0, 0.04). 
+    The fallback path calls fill_missing_channels(), which duplicates existing 
+    channels and does not preserve spatial topology — prefer the interpolation path when possible.
     """
-    output_dir = Path(output_dir)
+    if channel_type not in ("mag", "eeg"):
+        raise ValueError(f"Unsupported channel_type: {channel_type}")
+    
+    def get_base(name):
+        return name.split()[0].split("-")[0].strip()
+    
+    current_basenames = {get_base(ch) for ch in raw.info["ch_names"]}
+    can_interpolate = bool(current_basenames & set(good_channels.keys()))
 
     if channel_type == "mag":
-        first_key = next(iter(channel_groups), None)
-        base_name = first_key.split("-")[0]
-        if base_name in good_channels:
-            print("letsgo here")
+        if can_interpolate:
             raw = interpolate_missing_channels(raw, good_channels)
             data = {"m/eeg": [raw.get_data()]}
 
@@ -61,19 +99,19 @@ def save_data_matrices(
             data = {"m/eeg": [meg_data]}
 
     elif channel_type == "eeg":
-        channels_order = [
-            ch
-            for group, chans in channel_groups.items()
-            if (group != "bad")
-            for ch in chans
-        ]
-        raw.reorder_channels(channels_order)
-
-        meg_data = fill_missing_channels(raw, len(good_channels))
-        data = {"m/eeg": [meg_data]}
-
-    else:
-        raise ValueError(f"Unsupported channel_type: {channel_type}")
+        if can_interpolate:
+            raw = interpolate_missing_channels(raw, good_channels)
+            data = {"m/eeg": [raw.get_data()]}
+        else:
+            channels_order = [
+                ch
+                for group, chans in channel_groups.items()
+                if group != "bad"
+                for ch in chans
+            ]
+            raw.reorder_channels(channels_order)
+            meg_data = fill_missing_channels(raw, len(good_channels))
+            data = {"m/eeg": [meg_data]}
 
     save_obj(data, "data_raw", output_dir)
 
@@ -112,8 +150,6 @@ def create_windows(
     RuntimeError
         If no valid windows could be created with the given parameters.
     """
-    output_dir = Path(output_dir)
-
     window_size = int(window_size_s * sfreq)
     window_spacing = int((window_size_s - 2 * spike_spacing_from_border_s) * sfreq)
 
@@ -147,7 +183,7 @@ def create_windows(
     if stand:
         X_all = standardize(X_all)
 
-    (output_dir / "data_raw_windows_bi").write_bytes(X_all.tobytes())
+    (output_dir / "data_raw_windows_bi").write_bytes(X_all.tobytes()) #type: ignore
 
     # Save metadata
     save_obj(np.array(window_centers_all), "data_raw_timing", output_dir)

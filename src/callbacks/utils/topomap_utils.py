@@ -99,7 +99,7 @@ def create_topomap_from_preprocessed(
             eeg=False,
             stim=False,
             eog=False,
-            ref_meg=False,
+            ref_meg=False, #type: ignore
             exclude="bads",
         )
 
@@ -116,7 +116,7 @@ def create_topomap_from_preprocessed(
             eeg=True,
             stim=False,
             eog=False,
-            ref_meg=False,
+            ref_meg=False, #type: ignore
             exclude="bads",
         )
 

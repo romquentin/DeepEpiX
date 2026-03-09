@@ -2,6 +2,7 @@ from pathlib import Path
 from config import MODELS_DIR, CACHE_DIR
 import os
 import dask.dataframe as dd
+import pandas as pd
 
 from callbacks.utils import preprocessing_utils as pu
 
@@ -22,7 +23,7 @@ def extract_preprocess_signal(
     chunk_limits,
     excluded_ica_components=None,
     cache_dir=f"{CACHE_DIR}",
-):
+) -> pd.DataFrame:
     """
     Reconstruct the full preprocessed signal from cached Parquet segments.
 
@@ -85,9 +86,8 @@ def extract_preprocess_signal(
             cache_dir, chunk_limits
         )
 
-    if found_segments:
-        ddfs = [dd.read_parquet(seg_path) for seg_path in found_segments]
-        return dd.concat(ddfs).compute()
+    ddfs = [dd.read_parquet(seg_path) for seg_path in found_segments] #type: ignore
+    return dd.concat(ddfs).compute() #type: ignore
     
 def _find_cached_segments(
     data_path, freq_data, excluded_ica_components,

@@ -35,7 +35,7 @@ def get_annotation_descriptions(annotations_store):
 
 def get_heartbeat_event(raw, ch_name):
     # Find ECG events using the `find_ecg_events` function
-    events, _, _ = mne.preprocessing.find_ecg_events(raw, ch_name=ch_name)
+    events, _, _, _ = mne.preprocessing.find_ecg_events(raw, ch_name=ch_name) #type: ignore
 
     sfreq = raw.info["sfreq"]
     event_list = []
@@ -49,17 +49,6 @@ def get_heartbeat_event(raw, ch_name):
         )
 
     return pd.DataFrame(event_list)
-
-
-# def time_to_seconds(time_str):
-#     """
-#     Convert a time string 'HH:MM:SS.ssssss' into seconds as float.
-#     """
-#     t = datetime.datetime.strptime(time_str, "%H:%M:%S.%f")
-#     delta = datetime.timedelta(
-#         hours=t.hour, minutes=t.minute, seconds=t.second, microseconds=t.microsecond
-#     )
-#     return round(delta.total_seconds(), 3)
 
 
 def get_annotations_dataframe(raw, heartbeat_ch_name, modality):

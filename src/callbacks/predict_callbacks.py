@@ -413,7 +413,7 @@ def update_prediction_table(style, threshold, prediction_csv_path):
             msg = html.P("No events found in this recording.")
             return msg, msg, msg
 
-        table = dbc.Table.from_dataframe(
+        table = dbc.Table.from_dataframe( #type: ignore
             df_filtered.copy(),
             striped=True,
             bordered=True,
@@ -484,7 +484,7 @@ def register_store_display_prediction():
         prediction_df = df[df["probas"] > threshold]
         new_annotations = prediction_df[["onset", "duration"]].copy()
         new_annotations["description"] = spike_name  # Set spike name as description
-        new_annotations_dict = new_annotations.to_dict(orient="records")
+        new_annotations_dict = new_annotations.to_dict(orient="records") #type: ignore
         annotation_data.extend(new_annotations_dict)
 
         action = f"Tested model with <{spike_name}> as the predicted event name.\n"

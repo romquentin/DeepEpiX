@@ -49,6 +49,8 @@ def prepare_data(
         "mag",
     )
 
+    ls
+
     total_nb_windows = create_windows(
         output_path, window_size, False, sfreq, spike_spacing_from_borders
     )
@@ -152,6 +154,16 @@ def test_model(
 ):
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
     raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+
+    channel_to_remove = "MLC25-2805"
+
+    if channel_to_remove in raw.info["ch_names"]:
+        raw.drop_channels([channel_to_remove])
+
+    channel_groups = {
+        group: [ch for ch in chans if channel_to_remove not in ch]
+        for group, chans in channel_groups.items()
+    }
 
     # Params
     window_size = 0.2

@@ -154,16 +154,16 @@ def create_graph_container(
                                     "layout": {
                                         **DEFAULT_FIG_LAYOUT,
                                         "xaxis": {
-                                            **DEFAULT_FIG_LAYOUT.get("xaxis", {}),
+                                            **DEFAULT_FIG_LAYOUT.get("xaxis", {}), #type: ignore
                                             "range": [0, 20],
                                             "minallowed": 0,
                                             "maxallowed": config.CHUNK_RECORDING_DURATION,
                                         },
                                         "yaxis": {
-                                            **DEFAULT_FIG_LAYOUT.get("yaxis", {}),
+                                            **DEFAULT_FIG_LAYOUT.get("yaxis", {}), #type: ignore
                                         },
                                         "title": {
-                                            **DEFAULT_FIG_LAYOUT.get("title", {}),
+                                            **DEFAULT_FIG_LAYOUT.get("title", {}), #type: ignore
                                         },
                                     },
                                 },

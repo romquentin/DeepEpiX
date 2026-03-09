@@ -74,16 +74,16 @@ def apply_default_layout(
     - Updated Plotly figure with applied layout.
     """
     layout = DEFAULT_FIG_LAYOUT.copy()
-    layout["xaxis"]["range"] = xaxis_range
-    layout["xaxis"]["minallowed"] = time_range[0]
-    layout["xaxis"]["maxallowed"] = time_range[1]
+    layout["xaxis"]["range"] = xaxis_range          #type: ignore
+    layout["xaxis"]["minallowed"] = time_range[0]   #type: ignore
+    layout["xaxis"]["maxallowed"] = time_range[1]   #type: ignore
 
     height_per_channel = 35  # if compact_view else 35
-    layout["height"] = max(500, len(selected_channels) * height_per_channel)
+    layout["height"] = max(500, len(selected_channels) * height_per_channel)  #type: ignore
 
     ymin = min(y_axis_ticks) - 2 * channel_offset
     ymax = max(y_axis_ticks) + 2 * channel_offset
-    layout["yaxis"]["range"] = [ymin, ymax]
+    layout["yaxis"]["range"] = [ymin, ymax]         #type: ignore
 
     fig.update_layout(layout)
     return fig

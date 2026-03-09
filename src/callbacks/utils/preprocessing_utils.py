@@ -13,7 +13,7 @@ import json
 import numpy as np
 import mne
 import dask.dataframe as dd
-from dask import delayed
+from dask.delayed import delayed
 from flask_caching import Cache
 
 # Local Modules
@@ -189,14 +189,14 @@ def get_preprocessed_dataframe_dask(
         )
 
         if os.path.exists(cleaned_cache):
-            return dd.read_parquet(cleaned_cache), None
+            return dd.read_parquet(cleaned_cache), None #type: ignore
         
     cache_file = get_cache_filename(
         data_path, freq_data, start_time, end_time, cache_dir
     )
 
     if os.path.exists(cache_file):
-        return dd.read_parquet(cache_file), None
+        return dd.read_parquet(cache_file), None #type: ignore
 
     # Otherwise, compute and save
     @delayed
@@ -219,7 +219,7 @@ def get_preprocessed_dataframe_dask(
     raw_df_std = standardize(raw_df)
 
     df = raw_df_std.compute()
-    ddf = dd.from_pandas(df, npartitions=10)
+    ddf = dd.from_pandas(df, npartitions=10) #type: ignore
     ddf.to_parquet(cache_file)
 
     return ddf, prep_raw
@@ -371,7 +371,7 @@ def get_ica_components_dask(
     )
 
     if os.path.exists(cache_file):
-        return dd.read_parquet(cache_file)
+        return dd.read_parquet(cache_file) #type: ignore
 
     if raw is None:
         raw = dpu.read_raw(data_path, preload=True, verbose=False).pick(["meg"])
@@ -390,9 +390,9 @@ def get_ica_components_dask(
 
     new_sources = mne.io.RawArray(data, info)
     sources = new_sources.resample(300)
-    sources_df = sources.to_data_frame(index="time")
+    sources_df = sources.to_data_frame(index="time") #type: ignore
 
-    ddf = dd.from_pandas(sources_df, npartitions=10)
+    ddf = dd.from_pandas(sources_df, npartitions=10) #type: ignore
     ddf = ddf - ddf.mean(axis=0)
     ddf.to_parquet(cache_file)
 
@@ -453,7 +453,7 @@ def get_reconstructed_signal_dask(
     )
 
     if os.path.exists(cache_file):
-        return dd.read_parquet(cache_file)
+        return dd.read_parquet(cache_file) #type: ignore
     
     raw_chunk = raw.copy().crop(tmin=start_time, tmax=end_time)
     non_meg_channels = [ch for ch in raw_chunk.ch_names 
@@ -472,7 +472,7 @@ def get_reconstructed_signal_dask(
         cleaned_raw = raw_meg
 
     cleaned_df = cleaned_raw.to_data_frame(index="time")
-    ddf = dd.from_pandas(cleaned_df, npartitions=10)
+    ddf = dd.from_pandas(cleaned_df, npartitions=10) #type: ignore
     ddf.to_parquet(cache_file, overwrite=True)
 
     return ddf

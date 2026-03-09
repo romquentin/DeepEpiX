@@ -214,9 +214,6 @@ if __name__ == "__main__":
     overlap = 9
     total_lenght = centre_unique + overlap
 
-
-    print("COUCOU SMOOTHGRAD")
-
     run_smoothgrad(
         model_path,
         model_type,
