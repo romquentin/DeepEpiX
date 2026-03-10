@@ -1,4 +1,3 @@
-
 """
 Model Pipeline Template
 Author: Your Name
@@ -10,7 +9,7 @@ Description: Standard template for running model pipelines with test_model.
 import os
 import pandas as pd
 import gc
-from tensorflow import keras
+from tensorflow import keras 
 
 from model_pipeline.utils import load_raw_from_parquet
 

@@ -9,8 +9,8 @@ import gc
 import pickle
 import numpy as np
 import pandas as pd
-import tensorflow as tf
-from tensorflow import keras
+import tensorflow as tf # type: ignore
+from tensorflow import keras # type: ignore
 from model_pipeline.features_utils import get_win_data_feat
 from model_pipeline.sliding_windows_utils import (
     save_data_matrices,

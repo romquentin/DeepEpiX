@@ -3,10 +3,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from mne.io.base import BaseRaw
 import os
 from scipy.ndimage import median_filter
-import torch
+import torch # type: ignore
 from scipy import stats
 import logging
-import lightning as L
+import lightning as L # type: ignore
 import pickle
 from pathlib import Path
 import yaml
@@ -153,9 +153,7 @@ class PredictDataset(torch.utils.data.Dataset):
         self.logger.info(f"Initializing PredictDataset for {signal_path}")
 
         # Load and preprocess the recording once
-        self.meg_data = None
         self.channel_info = None
-        self.sampling_rate = None
         self.n_chunks = 0
 
         self._load_recording()

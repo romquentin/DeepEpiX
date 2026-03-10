@@ -9,13 +9,15 @@ from model_pipeline.utils import (
     standardize,
 )
 
+from typing import Union
+
 from pathlib import Path
 
 def save_data_matrices(
     raw: mne.io.RawArray,
     output_dir: str,
     channel_groups: dict,
-    good_channels: dict,
+    good_channels: Union[dict, list],
     channel_type: str = "mag",
 ) -> None:
     """

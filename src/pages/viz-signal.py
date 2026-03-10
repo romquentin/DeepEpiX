@@ -77,6 +77,7 @@ from callbacks.predict_callbacks import (
     register_execute_predict_script,
     register_store_display_prediction,
     register_update_selected_model,
+    register_smoothgrad_threshold,
 )
 
 dash.register_page(__name__, name="Data Viz & Analyze", path="/viz/raw-signal")
@@ -364,6 +365,7 @@ register_fill_signal_versions_predict()
 register_execute_predict_script()
 register_store_display_prediction()
 register_update_selected_model()
+register_smoothgrad_threshold()
 
 # --- Save ---
 register_display_bad_channels_to_save_checkboxes()

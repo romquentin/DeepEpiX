@@ -74,8 +74,8 @@ def extract_preprocess_signal(
             pu.get_preprocessed_dataframe_dask(
                 data_path=data_path,
                 freq_data=freq_data,
-                start_time=chunk["start"],
-                end_time=chunk["end"],
+                start_time=chunk[0],
+                end_time=chunk[1],
                 channels_dict=channels_dict,
                 excluded_ica_components=excluded_ica_components,
                 cache_dir=cache_dir,

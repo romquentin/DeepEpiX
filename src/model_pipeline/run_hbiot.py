@@ -8,7 +8,7 @@ import os
 import logging
 
 import pandas as pd
-import lightning as L
+import lightning as L #type: ignore
 
 from utils_biot.data import load_config, PredictionDataModule, MEGSpikeDetector
 

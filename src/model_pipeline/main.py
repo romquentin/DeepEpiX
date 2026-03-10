@@ -9,7 +9,6 @@ def run_model_pipeline(
     model_type,
     subject,
     output_path,
-    threshold,
     adjust_onset,
     channel_groups,
     signal_cache_path,
@@ -51,12 +50,11 @@ if __name__ == "__main__":
     model_type = sys.argv[2]  # TensorFlow or Pytorch
     data_path = sys.argv[3]
     results_path = sys.argv[4]
-    threshold = float(sys.argv[5])  # Convert back to float
-    adjust_onset = str(sys.argv[6]).lower() == "true"  # Bool
-    channel_groups = ast.literal_eval(sys.argv[7])
-    signal_cache_path = sys.argv[8]
-    mne_info_cache_path = sys.argv[9]
-    signal_name = sys.argv[10]
+    adjust_onset = str(sys.argv[5]).lower() == "true"  # Bool
+    channel_groups = ast.literal_eval(sys.argv[6])
+    signal_cache_path = sys.argv[7]
+    mne_info_cache_path = sys.argv[8]
+    signal_name = sys.argv[9]
     
     if not os.path.exists(signal_cache_path):
         raise FileNotFoundError(f"Singal file not found: {signal_cache_path}")
@@ -68,7 +66,6 @@ if __name__ == "__main__":
         model_type,
         data_path,
         results_path,
-        threshold,
         adjust_onset,
         channel_groups,
         signal_cache_path,

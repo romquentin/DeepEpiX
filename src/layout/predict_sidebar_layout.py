@@ -64,26 +64,6 @@ def create_predict():
                 ),
                 html.Div(
                     [
-                        html.Label("Threshold:", style={**LABEL_STYLES["classic"]}),
-                        dbc.Input(
-                            id="initial-threshold",
-                            type="number",
-                            value=0.5,
-                            step=0.01,
-                            min=0,
-                            max=1,
-                            style=INPUT_STYLES["small-number"],
-                        ),
-                        dbc.Tooltip(
-                            "Controls how confident the model must be to detect a spike.",
-                            target="threshold",
-                            placement="left",
-                        ),
-                    ],
-                    style={"marginBottom": "20px"},
-                ),
-                html.Div(
-                    [
                         html.Label(
                             "Sensitivity Analysis (smoothGrad):",
                             style={**LABEL_STYLES["classic"]},
@@ -104,6 +84,28 @@ def create_predict():
                             placement="left",
                         ),
                     ],
+                    style={"marginBottom": "20px"},
+                ),
+                html.Div(
+                    [
+                        html.Label("SmoothGrad Threshold:", style={**LABEL_STYLES["classic"]}),
+                        dbc.Input(
+                            id="smoothgrad-threshold",
+                            type="number",
+                            value=0.5,
+                            step=0.01,
+                            min=0,
+                            max=1,
+                            style=INPUT_STYLES["small-number"],
+                        ),
+                        dbc.Tooltip(
+                            "Indicates the minimum spike probability predicted by the model over a window to calculate the explainability method.\n"
+                            "Used as a balance between computation time and fine interpretability of results.",
+                            target="smoothgrad-threshold",
+                            placement="left",
+                        ),
+                    ],
+                    id="smoothgrad-threshold-div",
                     style={"marginBottom": "20px"},
                 ),
                 html.Div(

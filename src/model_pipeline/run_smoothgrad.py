@@ -191,6 +191,7 @@ def run_smoothgrad(
 
                 full_grads[start:end, :] = norm_grads[:, :]
 
+    signal_name = os.path.basename(signal_name).replace(".fif", "")
     grad_path = f"{path_to_files}/{os.path.basename(model_file)}_{signal_name}_smoothGrad.pkl"
     with open(grad_path, "wb") as f:
         pickle.dump(full_grads, f)

@@ -94,7 +94,7 @@ def register_execute_predict_script():
         State("signal-version-predict", "value"),
         State("model-dropdown", "value"),
         State("venv", "value"),
-        State("initial-threshold", "value"),
+        State("smoothgrad-threshold", "value"),
         State("sensitivity-analysis", "value"),
         State("adjust-onset", "value"),
         State("model-probabilities-store", "data"),
@@ -112,7 +112,7 @@ def register_execute_predict_script():
         signal_version,
         model_path,
         venv,
-        threshold,
+        smoothgrad_threshold,
         sensitivity_analysis,
         adjust_onset,
         model_probabilities_store,
@@ -148,8 +148,8 @@ def register_execute_predict_script():
             Path to the selected model file (e.g., .h5 or .pth).
         venv : str
             The selected environment type (e.g., "TensorFlow" or "PyTorch").
-        threshold : float
-            Confidence threshold for prediction onset.
+        smoothgrad_threshold : float
+            
         sensitivity_analysis : bool
             Whether to execute the SmoothGrad attribution script.
         adjust_onset : bool
@@ -211,8 +211,6 @@ def register_execute_predict_script():
             missing_fields.append("Model")
         if not venv:
             missing_fields.append("Environment")
-        if threshold is None:
-            missing_fields.append("Threshold")
         if missing_fields:
             error_message = (
                 f"⚠️ Please fill in all required fields: {', '.join(missing_fields)}"
@@ -238,10 +236,16 @@ def register_execute_predict_script():
         smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name}_smoothGrad.pkl"
 
         # If already exists, skip execution
-        if (
-            predictions_csv_path.exists()
-            and str(predictions_csv_path) in model_probabilities_store
-        ):
+        if predictions_csv_path.exists():
+            if not sensitivity_analysis or smoothgrad_path.exists():
+                return (
+                    "✅ Reusing existing model predictions",
+                    0,
+                    {"display": "block"},
+                    [str(predictions_csv_path)],
+                    [str(smoothgrad_path)] if smoothgrad_path.exists() else dash.no_update,
+                )
+            """"
             if (
                 sensitivity_analysis
                 and smoothgrad_path.exists()
@@ -261,7 +265,7 @@ def register_execute_predict_script():
                     {"display": "block"},
                     dash.no_update,
                     dash.no_update,
-                )
+                )"""
             
         meta = (history_data or {}).get("metadata", {})
         ica_results = meta.get("ica_results", {})
@@ -269,6 +273,10 @@ def register_execute_predict_script():
             excluded_ica = ica_results[signal_version].get("excluded_components", [])
         else:
             excluded_ica = None
+
+        print(f"Signal version : {signal_version}")
+        print(f"Excluded ica : {excluded_ica}")
+        print(f"History data : {history_data}")
 
         signal_cache_path = os.path.join(
             cache_dir, 
@@ -302,7 +310,6 @@ def register_execute_predict_script():
             str(venv),
             str(data_path),
             str(cache_dir),
-            str(threshold),  # Ensure threshold is passed as a string
             str(adjust_onset),
             str(channel_store),
             str(signal_cache_path),
@@ -339,7 +346,7 @@ def register_execute_predict_script():
                 str(venv),
                 str(cache_dir),
                 str(predictions_csv_path),
-                str(threshold),
+                str(smoothgrad_threshold),
                 str(mne_info_path),
                 str(signal_name),
             ]
@@ -492,3 +499,13 @@ def register_store_display_prediction():
 
         # Return updated annotations and switch tab
         return annotation_data, "selection-tab", {"display": "none"}, history_data
+
+def register_smoothgrad_threshold():
+    @callback(
+    Output("smoothgrad-threshold-div", "style"),
+    Input("sensitivity-analysis", "value"),
+    )
+    def toggle_smoothgrad_threshold(sensitivity_analysis):
+        if sensitivity_analysis:
+            return {"marginBottom": "20px", "display": "block"}
+        return {"marginBottom": "20px", "display": "none"}
