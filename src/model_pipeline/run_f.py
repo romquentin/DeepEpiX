@@ -12,9 +12,11 @@ import pandas as pd
 import gc
 from tensorflow import keras
 
+from model_pipeline.utils import load_raw_from_parquet
+
 
 # === Helper functions specific to your model ===
-def prepare_data():
+def prepare_data(raw):
     """
     Prepare dataset for the model.
     Replace with your actual preprocessing pipeline.
@@ -33,7 +35,7 @@ def load_model(model_name):
     # TODO
 
 
-def predict_windows() -> list[float]:
+def predict_windows(model, X_test_ids, model_name, output_path) -> list[float]:
     """
     Run predictions on the test dataset.
     Args:
@@ -44,7 +46,7 @@ def predict_windows() -> list[float]:
     # TODO
 
 
-def get_adjusted_onsets() -> list[float]:
+def get_adjusted_onsets(X_test_ids, output_path) -> list[float]:
     """
     Compute adjusted onsets (e.g. aligning to GFP peaks).
     Args:
@@ -66,7 +68,7 @@ def get_onsets(output_path):
     # TODO
 
 
-def save_predictions(output_path, model_name, onsets, y_pred_probas):
+def save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas):
     """Save predictions into a CSV file compatible with MNE annotations."""
     df = pd.DataFrame(
         {
@@ -75,9 +77,14 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
             "probas": y_pred_probas,
         }
     )
-    output_file = os.path.join(
-        output_path, f"{os.path.basename(model_name)}_predictions.csv"
-    )
+    if signal_name is not None:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_{signal_name}_predictions.csv"
+        )
+    else:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_predictions.csv"
+        )
     df.to_csv(output_file, index=False)
     return output_file
 
@@ -85,16 +92,18 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
 # === Main function ===
 def test_model(
     model_name,
-    model_type,
-    subject,
     output_path,
-    threshold=0.5,
+    signal_cache_path,
+    mne_info_cache_path,
     adjust_onset=True,
     channel_groups=None,
+    signal_name=None,
 ):
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
+    raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+
     # 1. Data preparation
-    X_test_ids = prepare_data(subject, output_path, channel_groups)
+    X_test_ids = prepare_data(raw)
 
     # 2. Load model
     model = load_model(model_name)
@@ -109,11 +118,11 @@ def test_model(
 
     # 5. Adjust onset times
     if adjust_onset:
-        onsets = get_adjusted_onsets(X_test_ids, y_pred_probas, output_path)
+        onsets = get_adjusted_onsets(X_test_ids, y_pred_probas)
     else:
         onsets = get_onsets(output_path)
 
     # 6. Save predictions
-    return save_predictions(output_path, model_name, onsets, y_pred_probas)
+    return save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas)
 
 

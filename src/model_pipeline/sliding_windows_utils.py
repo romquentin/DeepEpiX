@@ -1,4 +1,3 @@
-from pathlib import Path
 from tqdm import tqdm
 import numpy as np
 import mne
@@ -9,6 +8,8 @@ from model_pipeline.utils import (
     load_obj,
     standardize,
 )
+
+from pathlib import Path
 
 def save_data_matrices(
     raw: mne.io.RawArray,
@@ -150,6 +151,8 @@ def create_windows(
     RuntimeError
         If no valid windows could be created with the given parameters.
     """
+    output_dir = Path(output_dir)
+
     window_size = int(window_size_s * sfreq)
     window_spacing = int((window_size_s - 2 * spike_spacing_from_border_s) * sfreq)
 
@@ -183,7 +186,7 @@ def create_windows(
     if stand:
         X_all = standardize(X_all)
 
-    (output_dir / "data_raw_windows_bi").write_bytes(X_all.tobytes()) #type: ignore
+    (output_dir / "data_raw_windows_bi").write_bytes(X_all.tobytes())
 
     # Save metadata
     save_obj(np.array(window_centers_all), "data_raw_timing", output_dir)

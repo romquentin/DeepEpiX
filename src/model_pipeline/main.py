@@ -54,9 +54,14 @@ if __name__ == "__main__":
     threshold = float(sys.argv[5])  # Convert back to float
     adjust_onset = str(sys.argv[6]).lower() == "true"  # Bool
     channel_groups = ast.literal_eval(sys.argv[7])
-    signal_cache_path = sys.argv[8] if len(sys.argv) > 8 else None
-    mne_info_cache_path = sys.argv[9] if len(sys.argv) > 6 else None
+    signal_cache_path = sys.argv[8]
+    mne_info_cache_path = sys.argv[9]
     signal_name = sys.argv[10]
+    
+    if not os.path.exists(signal_cache_path):
+        raise FileNotFoundError(f"Singal file not found: {signal_cache_path}")
+    if not os.path.exists(mne_info_cache_path):
+        raise FileNotFoundError(f"MNE Info file not found: {mne_info_cache_path}")
 
     run_model_pipeline(
         model_path,

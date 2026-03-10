@@ -49,8 +49,6 @@ def prepare_data(
         "mag",
     )
 
-    ls
-
     total_nb_windows = create_windows(
         output_path, window_size, False, sfreq, spike_spacing_from_borders
     )
@@ -155,20 +153,15 @@ def test_model(
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
     raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
 
-    channel_to_remove = "MLC25-2805"
-
-    if channel_to_remove in raw.info["ch_names"]:
-        raw.drop_channels([channel_to_remove])
-
-    channel_groups = {
-        group: [ch for ch in chans if channel_to_remove not in ch]
-        for group, chans in channel_groups.items()
-    }
-
     # Params
     window_size = 0.2
-    sfreq = metadata['sfreq']
-    dim = (int(sfreq * window_size), 275, 1)
+    sfreq_model = 150
+    sfreq_orig = metadata['sfreq']
+
+    if sfreq_orig != sfreq_model:
+        raw = raw.resample(sfreq_model)
+
+    dim = (int(sfreq_model * window_size), 275, 1)
     spike_spacing_from_borders = 0.03
 
     # 1. Data preparation
@@ -176,7 +169,7 @@ def test_model(
         raw,
         output_path,
         channel_groups,
-        sfreq,
+        sfreq_model,
         window_size,
         spike_spacing_from_borders,
     )
@@ -194,9 +187,9 @@ def test_model(
 
     # 5. Adjust onset times
     if adjust_onset:
-        onsets = get_adjusted_onsets(X_test_ids, output_path, dim, sfreq)
+        onsets = get_adjusted_onsets(X_test_ids, output_path, dim, sfreq_model)
     else:
-        onsets = get_onsets(output_path, sfreq)
+        onsets = get_onsets(output_path, sfreq_model)
 
     # 6. Save predictions
     return save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas)

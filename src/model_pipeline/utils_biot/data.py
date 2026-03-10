@@ -1,19 +1,559 @@
 import numpy as np
-from typing import Any, Dict, List, Optional, Tuple
-import mne
+from typing import Any, Dict, List, Optional, Tuple, Union
 from mne.io.base import BaseRaw
 import os
-import pathlib
 from scipy.ndimage import median_filter
 import torch
 from scipy import stats
 import logging
 import lightning as L
 import pickle
+from pathlib import Path
+import yaml
+import traceback
+
+from model_pipeline.utils import load_raw_from_parquet
+from utils_biot.models import BIOTClassifier, BIOTHierarchicalClassifier
 
 
 logger = logging.getLogger(__name__)
 
+class PredictionDataModule(L.LightningDataModule):
+    """Lightning DataModule for prediction on single MEG files.
+
+    Note: At inference time, channel selection is handled automatically by PredictDataset
+    based on the available channels in the MEG file. No reference channels are needed.
+    """
+
+    def __init__(
+        self,
+        signal_path: str,
+        mne_info_path: str,
+        dataset_config: Dict[str, Any],
+        dataloader_config: Dict[str, Any],
+        reference_channels_path: Optional[str] = None,
+        num_workers_ratio: float = 0.5,
+        **kwargs
+    ):
+        """Initialize prediction data module.
+
+        Args:
+            signal_path: Path to the preprocessed file
+            dataset_config: Configuration for data processing
+            dataloader_config: Configuration for data loaders
+            reference_channels_path: Path to reference channels pickle file
+            num_workers_ratio: Ratio of CPU cores to use for workers (default: 0.5)
+            **kwargs: Additional parameters for compatibility (unused)
+        """
+        super().__init__()
+        self.signal_path = signal_path
+        self.mne_info_path = mne_info_path
+        self.dataset_config = dataset_config
+        self.dataloader_config = dataloader_config
+        self.reference_channels_path = reference_channels_path
+        self.num_workers_ratio = num_workers_ratio
+
+        self.predict_dataset: Optional[PredictDataset] = None
+        self.input_shape: Optional[torch.Size] = None
+        self.output_shape: Optional[torch.Size] = None
+        
+    def prepare_data(self):
+        """Prepare data - verify file exists."""
+        if not os.path.exists(self.signal_path):
+            raise FileNotFoundError(f"Preprocessed signal not found: {self.signal_path}")
+            
+    def setup(self, stage: Optional[str] = None):
+        """Set up the prediction dataset."""
+        if stage == 'predict' or stage is None:
+            self.predict_dataset = PredictDataset(
+                signal_path=self.signal_path,
+                mne_info_path=self.mne_info_path,
+                dataset_config=self.dataset_config,
+                reference_channels_path=self.reference_channels_path,
+            )
+           
+            # Set shapes
+            if len(self.predict_dataset) > 0:
+                sample = self.predict_dataset[0]
+                data = sample[0]  # chunk data
+                self.input_shape = data.shape
+                self.output_shape = torch.Size([data.shape[0]])  # n_windows
+
+    def predict_dataloader(self) -> torch.utils.data.DataLoader:
+        """Create the prediction dataloader with dynamic num_workers."""
+        if self.predict_dataset is None:
+            raise RuntimeError("Call setup() before getting prediction dataloader")
+
+        predict_config = self.dataloader_config.get('predict', self.dataloader_config.get('test', {})).copy()
+
+        # Check that shuffle is False for prediction
+        if predict_config.get('shuffle', True):
+            predict_config['shuffle'] = False
+
+        if 'num_workers' not in predict_config or predict_config['num_workers'] == 0:
+            optimal_workers = get_optimal_num_workers(
+                ratio=self.num_workers_ratio,
+                min_workers=0,
+                max_workers=None
+            )
+            predict_config['num_workers'] = optimal_workers
+
+        return torch.utils.data.DataLoader(
+            self.predict_dataset,
+            **predict_config,
+            collate_fn=predict_collate_fn,
+        )
+    
+    def get_input_shape(self) -> torch.Size:
+        """Get the input shape for model initialization."""
+        if self.input_shape is None:
+            raise RuntimeError("Call setup() before getting input shape")
+        return self.input_shape
+    
+    def get_output_shape(self) -> torch.Size:
+        """Get the output shape for model initialization."""
+        if self.output_shape is None:
+            raise RuntimeError("Call setup() before getting output shape")
+        return self.output_shape
+
+class PredictDataset(torch.utils.data.Dataset):
+    """Dataset for prediction using sequential chunk extraction.
+
+    Returns:
+        Tuple of (chunk_data, metadata) with unified metadata convention including
+        chunk_onset_sample, chunk_idx, window_times, etc.
+    """
+
+    def __init__(
+        self,
+        signal_path: str,
+        mne_info_path: str,
+        dataset_config: Dict[str, Any],
+        n_channels: int = 275,
+        reference_channels_path: Optional[str] = None,
+    ):
+        """Initialize prediction dataset with sequential chunk extraction.
+
+        Args:
+            signal_path: Path to the preprocessed signal file (.parquet).
+            dataset_config: Configuration for data processing.
+            n_channels: Number of MEG channels (default: 275) for consistent input size.
+        """
+        self.signal_path = signal_path
+        self.mne_info_path = mne_info_path
+        self.dataset_config = dataset_config
+        self.n_channels = n_channels
+        if reference_channels_path is not None:
+            with open(reference_channels_path, 'rb') as f:
+                self.reference_channels = pickle.load(f)
+        else:
+            self.reference_channels = None
+
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"Initializing PredictDataset for {signal_path}")
+
+        # Load and preprocess the recording once
+        self.meg_data = None
+        self.channel_info = None
+        self.sampling_rate = None
+        self.n_chunks = 0
+
+        self._load_recording()
+
+    def _load_recording(self):
+        """Load and preprocess the MEG recording once."""
+        try:
+            raw, self.meg_data, self.channel_info = load_and_process_meg_data(
+                self.signal_path,
+                self.mne_info_path,
+                self.dataset_config,
+                good_channels=self.reference_channels,
+                n_channels=self.n_channels,
+            )
+
+            self.sampling_rate = raw.info['sfreq']
+            raw.close()
+
+            self.all_windows = create_windows(
+                self.meg_data,
+                self.sampling_rate,
+                self.dataset_config['window_duration_s'],
+                self.dataset_config.get('window_overlap', 0.0),
+            )
+
+            num_context_windows = self.dataset_config['n_windows']
+            total_windows = len(self.all_windows)
+            self.n_chunks = (total_windows + num_context_windows - 1) // num_context_windows
+
+            print(f"Loaded recording: {self.meg_data.shape[1]} samples, "
+                           f"{total_windows} windows, {self.n_chunks} chunks")
+
+        except Exception as e:
+            self.logger.error(f"Error loading file {self.signal_path}: {e}")
+            raise
+
+    def __len__(self) -> int:
+        """Return number of chunks."""
+        return self.n_chunks
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        """Extract a chunk sequentially for prediction.
+
+        Args:
+            idx: Chunk index (0-based).
+
+        Returns:
+            Tuple of (chunk_data, metadata) with chunk_data as tensor of shape
+            (n_windows, n_channels, window_samples) and metadata dictionary.
+        """
+        num_context_windows = self.dataset_config['n_windows']
+        window_duration_samples = int(self.dataset_config['window_duration_s'] * self.sampling_rate)
+        window_overlap = self.dataset_config.get('window_overlap', 0.0)
+        window_step = max(1, int(window_duration_samples * (1 - window_overlap)))
+
+        start_window_idx = idx * num_context_windows
+        end_window_idx = min(start_window_idx + num_context_windows, len(self.all_windows))
+
+        windows = self.all_windows[start_window_idx:end_window_idx]
+
+        chunk_onset_sample = start_window_idx * window_step
+
+        window_times = []
+        for local_idx, global_idx in enumerate(range(start_window_idx, end_window_idx)):
+            window_start = global_idx * window_step
+            window_end = window_start + window_duration_samples
+            window_center = window_start + window_duration_samples // 2
+
+            peak_sample, peak_time = find_gfp_peak_in_window(
+                self.meg_data, window_start, window_end, self.sampling_rate
+            )
+
+            window_times.append({
+                'start_sample': int(window_start),
+                'end_sample': int(window_end),
+                'center_sample': int(window_center),
+                'peak_sample': int(peak_sample),
+                'start_time': float(window_start / self.sampling_rate),
+                'end_time': float(window_end / self.sampling_rate),
+                'center_time': float(window_center / self.sampling_rate),
+                'peak_time': float(peak_time),
+                'window_idx_in_chunk': local_idx,
+                'global_window_idx': global_idx,
+            })
+
+        metadata = {
+            'chunk_onset_sample': chunk_onset_sample,
+            'chunk_offset_sample': chunk_onset_sample + len(windows) * window_step + (window_duration_samples - window_step),
+            'chunk_duration_samples': len(windows) * window_step + (window_duration_samples - window_step),
+            'chunk_idx': idx,
+            'start_window_idx': start_window_idx,
+            'end_window_idx': end_window_idx,
+            'n_windows': len(windows),
+            'window_times': window_times,
+            'window_duration_s': self.dataset_config['window_duration_s'],
+            'window_duration_samples': window_duration_samples,
+            'signal_path': self.signal_path,
+            'channel_mask': self.channel_info.get('channel_mask', None) if self.channel_info else None,
+            'selected_channels': self.channel_info.get('selected_channels', []) if self.channel_info else [],
+            'n_selected_channels': len(self.channel_info.get('selected_channels', [])) if self.channel_info else 0,
+            'USE_REFERENCE_CHANNELS': self.channel_info.get('USE_REFERENCE_CHANNELS', False) if self.channel_info else False,
+            'sampling_rate': self.sampling_rate,
+            'is_test_set': False,
+            'extraction_mode': 'sequential',
+        }
+
+        return torch.tensor(windows, dtype=torch.float32), metadata
+    
+class MEGSpikeDetector(L.LightningModule):
+    """Lightning module for spike detection in MEG data.
+
+    This module handles training, validation, and testing of MEG spike detection models.
+    All metrics computation and reporting is handled by the MetricsEvaluationCallback.
+
+    Attributes:
+        config: Configuration dictionary containing all component settings
+        model: The neural network model for spike detection
+        loss_fn: The loss function for training
+        threshold: Classification threshold for binary predictions (updated by callback)
+    """
+
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        input_shape: Tuple[int, int, int],
+        log_dir: str,
+        **_kwargs,
+    ) -> None:
+        """Initialize the Lightning module with configuration.
+
+        Args:
+            config: Configuration dictionary containing model, loss, optimizer settings
+            input_shape: Shape of the input data (channels, time_points)
+            log_dir: Directory for logging
+            **kwargs: Additional keyword arguments
+
+        Raises:
+            ValueError: If required configuration keys are missing
+            TypeError: If input_shape is not a tuple
+        """
+        # Input validation
+        if not isinstance(config, dict):
+            raise TypeError(f"config must be a dictionary, got {type(config)}")
+
+        required_keys = ["model", "data", "evaluation"]
+        missing_keys = [key for key in required_keys if key not in config]
+        if missing_keys:
+            raise ValueError(f"Missing required config keys: {missing_keys}")
+
+        if not isinstance(input_shape, tuple) or len(input_shape) != 3:
+            raise ValueError(
+                f"input_shape must be a tuple of length 3, got {input_shape}"
+            )
+        super().__init__()
+        logger.info("Initializing ConfigurableLightningModule")
+        self.config = config
+        self.log_dir = log_dir
+        self.input_shape = input_shape
+        config["model"][config["model"]["name"]]["input_shape"] = list(input_shape)
+        config["model"][config["model"]["name"]]["log_dir"] = log_dir
+        self.save_hyperparameters(config)
+
+        # Create model and processing flags
+        self.contextual = config["model"][config["model"]["name"]].get(
+            "contextual", False
+        )
+        self.sequential_processing = config["model"][config["model"]["name"]].get(
+            "sequential_processing", False
+        )
+        if config["model"]["name"] == "BIOT":
+            self.model = BIOTClassifier(**config["model"]["BIOT"])    
+        elif config["model"]["name"] == "BIOTHierarchical":
+            self.model = BIOTHierarchicalClassifier(
+                **config["model"]["BIOTHierarchical"]
+            )
+        else:
+            raise ValueError(f"Unsupported model name: {config['model']['name']}")
+
+        # Temperature scaling configuration and validation
+        self.temperature_scaling_enabled = config["evaluation"].get(
+            "temperature_scaling", False
+        )
+        # Classification threshold (can be updated by MetricsEvaluationCallback if threshold_optimization=True)
+        self.threshold = config["evaluation"].get("default_threshold", 0.5)
+
+        # Temperature scaling for calibrated predictions (1.0 = no scaling)
+        self.temperature = torch.nn.Parameter(torch.ones(1) * 1.0)
+        self.temperature.requires_grad = (
+            False  # Only optimized during temperature scaling phase
+        )
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Restore threshold and temperature from checkpoint if available."""
+        super().on_load_checkpoint(checkpoint)
+        if "hyper_parameters" in checkpoint:
+            if "threshold" in checkpoint["hyper_parameters"]:
+                self.threshold = checkpoint["hyper_parameters"]["threshold"]
+                print(f"Restored threshold from checkpoint: {self.threshold:.4f}")
+            if "temperature" in checkpoint["hyper_parameters"]:
+                temp_value = checkpoint["hyper_parameters"]["temperature"]
+                if isinstance(temp_value, torch.Tensor):
+                    self.temperature.data = temp_value.to(self.temperature.device)
+                else:
+                    self.temperature.data = torch.tensor(
+                        [temp_value], device=self.temperature.device
+                    )
+                print(
+                    f"Restored temperature from checkpoint: {self.temperature.item():.4f}"
+                )
+
+    def apply_temperature_scaling(self, logits: torch.Tensor) -> torch.Tensor:
+        """Apply temperature scaling to logits for calibrated predictions.
+
+        Temperature scaling divides logits by a learned temperature parameter T:
+        - T > 1: Makes predictions less confident (smoother probabilities)
+        - T = 1: No scaling (default)
+        - T < 1: Makes predictions more confident (sharper probabilities)
+
+        Args:
+            logits: Raw model logits [batch_size, n_windows, n_classes] or [batch_size, n_windows]
+
+        Returns:
+            Temperature-scaled logits of the same shape
+        """
+        return logits / self.temperature
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        channel_mask: Optional[torch.Tensor],
+        window_mask: Optional[torch.Tensor] = None,
+        force_sequential: bool = False,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Forward pass of the model with contextual and sequential processing support.
+
+        Handles different processing modes:
+        - Contextual: Pass full sequence [batch_size, n_windows, n_channels, n_timepoints] to model
+        - Non-contextual + batch mode: Reshape to [BxN_window, n_channels, n_timepoints]
+        - Non-contextual + sequential: Loop through windows individually
+
+        Args:
+            x: Input tensor of shape [batch_size, n_windows, n_channels, n_timepoints]
+            channel_mask: Optional channel mask tensor (B, C) where True=valid, False=masked.
+            window_mask: Optional window mask tensor (B, N) where True=valid, False=masked.
+            force_sequential: Whether to force sequential processing mode.
+            *args: Additional positional arguments to pass to the model.
+            **kwargs: Additional keyword arguments to pass to the model.
+
+        Returns:
+            torch.Tensor: Output logits of shape [batch_size, n_windows, n_classes]
+        """
+        if self.contextual:
+            # Contextual models process the full sequence with temporal context
+            return self.model(x, channel_mask, window_mask, *args, **kwargs)
+
+        # Non-contextual processing for window-level models
+        batch_size, n_windows, n_channels, n_timepoints = x.shape
+        if self.sequential_processing or force_sequential:
+            # Sequential mode: Process each window individually in a loop
+            window_outputs = []
+            for seg_idx in range(n_windows):
+                window = x[:, seg_idx, :, :]  # [batch_size, n_channels, n_timepoints]
+                window_output = self.model(
+                    window, channel_mask, *args, **kwargs
+                )  # [batch_size, n_classes]
+                window_outputs.append(
+                    window_output.unsqueeze(1)
+                )  # [batch_size, 1, n_classes]
+
+            return torch.cat(
+                window_outputs, dim=1
+            )  # [batch_size, n_windows, n_classes]
+        else:
+            # Batch mode: Reshape to process all windows simultaneously
+            x = x.view(
+                batch_size * n_windows, n_channels, n_timepoints
+            )  # [B×N_window, n_channels, n_timepoints]
+            channel_mask = (
+                channel_mask.repeat_interleave(n_windows, dim=0)
+                if channel_mask is not None
+                else None
+            )  # [B×N_window, n_channels]
+            if "unknown_mask" in kwargs and kwargs["unknown_mask"] is not None:
+                unknown_mask = kwargs["unknown_mask"].repeat_interleave(
+                    n_windows, dim=0
+                )
+                kwargs["unknown_mask"] = unknown_mask  # [B×N_window, n_channels]
+            result = self.model(
+                x, channel_mask, *args, **kwargs
+            )  # [B×N_window, n_classes]
+            return result.view(
+                batch_size, n_windows, -1
+            )  # [batch_size, n_windows, n_classes]
+
+    def predict_step(self, batch, batch_idx):
+        """Perform a single prediction step.
+
+        Args:
+            batch: Batch data (X, window_mask, channel_mask, metadata) where:
+                - X: Input MEG data [batch_size, n_windows, n_channels, n_timepoints]
+                - window_mask: Valid window mask [batch_size, n_windows] - 1=valid, 0=padded
+                - channel_mask: Valid channel mask [batch_size, n_channels] - 1=valid, 0=masked
+                - metadata: Sample metadata for result export
+            batch_idx: Index of the batch
+
+        Returns:
+            Dictionary containing predictions, probabilities, and metadata
+        """
+        X, window_mask, channel_mask, metadata = batch
+
+        unknown_mask = None
+        if not metadata[0]["USE_REFERENCE_CHANNELS"] and channel_mask is not None:
+            # Channel mask is actually true everywhere but for padded channels
+            # We actually don't know if good channels are really good at inference time, we just know that this is real data
+            # So we use an unknown mask that is all True where channel_mask is given
+            unknown_mask = torch.ones_like(channel_mask, dtype=torch.bool)
+
+        # Forward pass with batch-aware channel mask
+        force_sequential = not self.config["model"]["name"] == "BIOTHierarchical"
+        logits = self.forward(
+            X,
+            channel_mask=channel_mask,
+            window_mask=window_mask,
+            unknown_mask=unknown_mask,
+            force_sequential=force_sequential,
+        )
+
+        # Apply temperature scaling and compute calibrated probabilities
+        scaled_logits = self.apply_temperature_scaling(logits)
+        probs = torch.sigmoid(scaled_logits).cpu().detach()
+
+        # Apply threshold for binary predictions
+        predictions = (probs >= self.threshold).float()
+
+        # Prepare outputs
+        outputs = {
+            "logits": logits.cpu().detach(),
+            "probs": probs,
+            "predictions": predictions,
+            "batch_size": X.shape[0],
+            "n_windows": X.shape[1] if len(X.shape) > 2 else 1,
+            "batch_idx": batch_idx,
+            "metadata": metadata if metadata else {},
+            "channel_mask": (
+                channel_mask.cpu().detach().float().numpy()
+                if channel_mask is not None
+                else None
+            ),
+            "window_mask": (
+                window_mask.cpu().detach().float().numpy()
+                if window_mask is not None
+                else None
+            ),
+        }
+        return outputs
+
+    def _collect_batch_outputs(
+        self,
+        batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict],
+        logits: torch.Tensor,
+    ) -> Dict[str, Any]:
+        """Collect outputs for a single batch.
+
+        Args:
+            batch: Input batch (X, y, window_mask, channel_mask, metadata)
+            logits: Model output logits for the batch
+
+        Returns:
+            Dictionary with batch outputs including per-window losses
+        """
+        X, y, window_mask, _channel_mask, metadata = batch
+
+        # Apply temperature scaling for calibrated probabilities
+        scaled_logits = self.apply_temperature_scaling(logits)
+
+        # Compute per-window BCE loss without reduction for analysis (using scaled logits)
+        # Note: Both scaled_logits and y are [B, N] for binary classification
+        per_window_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            scaled_logits, y, reduction="none"
+        )
+        probs = torch.sigmoid(scaled_logits)
+
+        return {
+            "logits": logits.cpu().detach().float().numpy(),
+            "probs": probs.cpu().detach().float().numpy(),
+            "predictions": (probs >= self.threshold).float().cpu().detach().numpy(),
+            "gt": y.cpu().detach().float().numpy(),
+            "mask": window_mask.cpu().detach().float().numpy(),
+            "losses": per_window_loss.cpu()
+            .detach()
+            .float()
+            .numpy(),  # Per-window losses
+            "metadata": metadata if metadata else {},
+            "batch_size": X.shape[0],
+            "n_windows": X.shape[1],
+        }
 
 def get_optimal_num_workers(ratio: float = 0.5, min_workers: int = 0, max_workers: Optional[int] = None) -> int:
     """Dynamically determine the optimal number of workers for data loading.
@@ -51,10 +591,9 @@ def get_optimal_num_workers(ratio: float = 0.5, min_workers: int = 0, max_worker
 
     return optimal_workers
 
-
-## --- Dataset and Datamodules ---
 def load_and_process_meg_data(
-    file_path: str,
+    signal_cache_path: str,
+    mne_info_cache_path: str,
     config: Dict[str, Any],
     good_channels: Optional[List[str]] = None,
     n_channels: int = 275,
@@ -77,63 +616,24 @@ def load_and_process_meg_data(
     """
     USE_REFERENCE_CHANNELS = False
     try:
-        if ".ds" in file_path:
-            raw = mne.io.read_raw_ctf(file_path, preload=False).pick(picks=['meg'], exclude='bads').load_data()
-            USE_REFERENCE_CHANNELS = True
-        elif ".fif" in file_path:
-            raw = mne.io.read_raw_fif(file_path, preload=False).pick(picks=['meg'], exclude='bads').load_data()
-        elif os.path.isdir(file_path):
-            subject_path = pathlib.Path(file_path)
-            files = list(subject_path.glob("*"))
-            raw_fname = next((f for f in files if "rfDC" in f.name and f.suffix == ""), None)
-            config_fname = next((f for f in files if "config" in f.name.lower()), None)
-            hs_fname = next((f for f in files if "hs" in f.name.lower()), None)
+        raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
 
-            if not all([raw_fname, config_fname, hs_fname]):
-                raise ValueError("Missing BTi raw/config/hs files.")
+        if raw.info['sfreq'] != config['sampling_rate']:
+            raw.resample(sfreq=config['sampling_rate'])
 
-            raw = mne.io.read_raw_bti(
-                pdf_fname=str(raw_fname),
-                config_fname=str(config_fname),
-                head_shape_fname=str(hs_fname),
-                preload=False,
-                verbose=False,
-            ).pick(picks=['meg'], exclude='bads').load_data()
-        else:
-            raise ValueError("Unsupported file type for subject path.")
-
-        # Special case handling for specific file patterns
-        for pattern, channels in config.get('special_case_handling', {}).items():
-            if pattern in file_path:
-                # Drop problematic channels before selecting
-                channels_to_drop = [ch for ch in channels if ch in raw.ch_names]
-                if channels_to_drop:
-                    raw.drop_channels(channels_to_drop)
-                    logger.info(f"Dropped {len(channels_to_drop)} special case channels for pattern '{pattern}'")
-        
         if good_channels is None or not USE_REFERENCE_CHANNELS:
             good_channels = list(raw.ch_names)  # Use all available channels if no reference provided
             # sample n_channels from good_channels if more than n_channels are available
+
             if len(good_channels) > n_channels:
                 good_channels = good_channels[:n_channels]
-            logger.info(f"No good_channels provided, using all {len(good_channels)} available channels")
         
         # Select channels based on good channels and location information
         raw, channel_info = select_channels(raw, good_channels)
         
-        # Resample and filter
-        if raw.info['sfreq'] != config['sampling_rate']:
-            raw.resample(sfreq=config['sampling_rate'])
-        raw.filter(l_freq=config.get('l_freq', 0.5), h_freq=config.get('h_freq', 95.0))
-        
-        if config.get('notch_freq', 50.0) > 0:
-            freqs = np.arange(config['notch_freq'], config['sampling_rate']/2, config['notch_freq']).tolist()
-            raw.notch_filter(freqs=freqs)
-        
         # Get raw data from MNE (in order of selected_channels)
         raw_data = np.array(raw.get_data())  # Shape: (n_selected_channels, n_timepoints)
         n_timepoints = raw_data.shape[1]
-
 
         # Now normalize and filter
         raw_data = normalize_data(raw_data, config.get('normalization', {'method': 'robust_zscore', 'axis': None}))
@@ -163,9 +663,6 @@ def load_and_process_meg_data(
             else:
                 logger.warning(f"Channel {ch_name} not in good_channels reference - skipping")
 
-        n_valid = channel_mask.sum().item()
-        logger.debug(f"Channel masking (file: {os.path.basename(file_path)}): {n_valid}/{len(good_channels)} valid channels")
-
         # Store channel mask for batch collation
         channel_info['channel_mask'] = channel_mask
         channel_info['USE_REFERENCE_CHANNELS'] = USE_REFERENCE_CHANNELS and (good_channels is not None)
@@ -173,7 +670,7 @@ def load_and_process_meg_data(
         return raw, data, channel_info
 
     except Exception as e:
-        logger.error(f"Error processing {file_path}: {e}")
+        logger.error(f"Error processing {signal_cache_path}: {e}")
         raise
 
 
@@ -322,7 +819,6 @@ def compute_gfp(meg_data: np.ndarray, axis: int = 0) -> np.ndarray:
     Returns:
         GFP values, shape (n_timepoints,)
     """
-    # Compute GFP as standard deviation across channels
     gfp = np.std(meg_data, axis=axis)
     return gfp
 
@@ -356,154 +852,6 @@ def find_gfp_peak_in_window(
     peak_time = peak_sample / sampling_rate
     
     return int(peak_sample), float(peak_time)
-
-
-class PredictDataset(torch.utils.data.Dataset):
-    """Dataset for prediction using sequential chunk extraction.
-
-    Returns:
-        Tuple of (chunk_data, metadata) with unified metadata convention including
-        chunk_onset_sample, chunk_idx, window_times, etc.
-    """
-
-    def __init__(
-        self,
-        file_path: str,
-        dataset_config: Dict[str, Any],
-        n_channels: int = 275,
-        reference_channels_path: Optional[str] = None,
-    ):
-        """Initialize prediction dataset with sequential chunk extraction.
-
-        Args:
-            file_path: Path to the MEG file (.fif or .ds).
-            dataset_config: Configuration for data processing.
-            n_channels: Number of MEG channels (default: 275) for consistent input size.
-        """
-        self.file_path = file_path
-        self.dataset_config = dataset_config
-        self.n_channels = n_channels
-        if reference_channels_path is not None:
-            with open(reference_channels_path, 'rb') as f:
-                self.reference_channels = pickle.load(f)
-        else:
-            self.reference_channels = None
-
-        self.logger = logging.getLogger(__name__)
-        self.logger.info(f"Initializing PredictDataset for {file_path}")
-
-        # Load and preprocess the recording once
-        self.meg_data = None
-        self.channel_info = None
-        self.sampling_rate = None
-        self.n_chunks = 0
-
-        self._load_recording()
-
-    def _load_recording(self):
-        """Load and preprocess the MEG recording once."""
-        try:
-            raw, self.meg_data, self.channel_info = load_and_process_meg_data(
-                self.file_path,
-                self.dataset_config,
-                good_channels=self.reference_channels,
-                n_channels=self.n_channels,
-            )
-
-            self.sampling_rate = raw.info['sfreq']
-            raw.close()
-
-            self.all_windows = create_windows(
-                self.meg_data,
-                self.sampling_rate,
-                self.dataset_config['window_duration_s'],
-                self.dataset_config.get('window_overlap', 0.0),
-            )
-
-            num_context_windows = self.dataset_config['n_windows']
-            total_windows = len(self.all_windows)
-            self.n_chunks = (total_windows + num_context_windows - 1) // num_context_windows
-
-            self.logger.info(f"Loaded recording: {self.meg_data.shape[1]} samples, "
-                           f"{total_windows} windows, {self.n_chunks} chunks")
-
-        except Exception as e:
-            self.logger.error(f"Error loading file {self.file_path}: {e}")
-            raise
-
-    def __len__(self) -> int:
-        """Return number of chunks."""
-        return self.n_chunks
-
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        """Extract a chunk sequentially for prediction.
-
-        Args:
-            idx: Chunk index (0-based).
-
-        Returns:
-            Tuple of (chunk_data, metadata) with chunk_data as tensor of shape
-            (n_windows, n_channels, window_samples) and metadata dictionary.
-        """
-        num_context_windows = self.dataset_config['n_windows']
-        window_duration_samples = int(self.dataset_config['window_duration_s'] * self.sampling_rate)
-        window_overlap = self.dataset_config.get('window_overlap', 0.0)
-        window_step = max(1, int(window_duration_samples * (1 - window_overlap)))
-
-        start_window_idx = idx * num_context_windows
-        end_window_idx = min(start_window_idx + num_context_windows, len(self.all_windows))
-
-        windows = self.all_windows[start_window_idx:end_window_idx]
-
-        chunk_onset_sample = start_window_idx * window_step
-
-        window_times = []
-        for local_idx, global_idx in enumerate(range(start_window_idx, end_window_idx)):
-            window_start = global_idx * window_step
-            window_end = window_start + window_duration_samples
-            window_center = window_start + window_duration_samples // 2
-
-            peak_sample, peak_time = find_gfp_peak_in_window(
-                self.meg_data, window_start, window_end, self.sampling_rate
-            )
-
-            window_times.append({
-                'start_sample': int(window_start),
-                'end_sample': int(window_end),
-                'center_sample': int(window_center),
-                'peak_sample': int(peak_sample),
-                'start_time': float(window_start / self.sampling_rate),
-                'end_time': float(window_end / self.sampling_rate),
-                'center_time': float(window_center / self.sampling_rate),
-                'peak_time': float(peak_time),
-                'window_idx_in_chunk': local_idx,
-                'global_window_idx': global_idx,
-            })
-
-        metadata = {
-            'chunk_onset_sample': chunk_onset_sample,
-            'chunk_offset_sample': chunk_onset_sample + len(windows) * window_step + (window_duration_samples - window_step),
-            'chunk_duration_samples': len(windows) * window_step + (window_duration_samples - window_step),
-            'chunk_idx': idx,
-            'start_window_idx': start_window_idx,
-            'end_window_idx': end_window_idx,
-            'n_windows': len(windows),
-            'window_times': window_times,
-            'window_duration_s': self.dataset_config['window_duration_s'],
-            'window_duration_samples': window_duration_samples,
-            'file_name': self.file_path,
-            'patient_id': self.file_path.split('/')[-2] if '/' in self.file_path else 'unknown',
-            'channel_mask': self.channel_info.get('channel_mask', None) if self.channel_info else None,
-            'selected_channels': self.channel_info.get('selected_channels', []) if self.channel_info else [],
-            'n_selected_channels': len(self.channel_info.get('selected_channels', [])) if self.channel_info else 0,
-            'USE_REFERENCE_CHANNELS': self.channel_info.get('USE_REFERENCE_CHANNELS', False) if self.channel_info else False,
-            'sampling_rate': self.sampling_rate,
-            'is_test_set': False,
-            'extraction_mode': 'sequential',
-        }
-
-        return torch.tensor(windows, dtype=torch.float32), metadata
-
 
 def predict_collate_fn(batch):
     """Collate function for prediction batches with padding and masking.
@@ -557,112 +905,60 @@ def predict_collate_fn(batch):
     return batch_data, batch_window_mask, batch_channel_mask, metadata_list
 
 
-class PredictionDataModule(L.LightningDataModule):
-    """Lightning DataModule for prediction on single MEG files.
+def load_config(config_path: Union[str, Path]) -> Dict[str, Any]:
+    """Load configuration from a YAML file with optional validation.
 
-    Note: At inference time, channel selection is handled automatically by PredictDataset
-    based on the available channels in the MEG file. No reference channels are needed.
+    Args:
+        config_path: Path to the configuration file
+
+    Returns:
+        Configuration dictionary
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        yaml.YAMLError: If YAML parsing fails
+        ValueError: If validation fails
     """
+    config_path = Path(config_path)
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-    def __init__(
-        self,
-        file_path: str,
-        dataset_config: Dict[str, Any],
-        dataloader_config: Dict[str, Any],
-        reference_channels_path: Optional[str] = None,
-        num_workers_ratio: float = 0.5,
-        **kwargs
-    ):
-        """Initialize prediction data module.
+    try:
+        with open(config_path, "r") as file:
+            config = yaml.safe_load(file)
+    except yaml.YAMLError as e:
+        logger.error(f"YAML parsing failed for {config_path}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise yaml.YAMLError(f"Failed to parse YAML file {config_path}: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error loading config from {config_path}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise RuntimeError(f"Failed to load configuration: {e}")
 
-        Args:
-            file_path: Path to the MEG file (.fif or .ds)
-            dataset_config: Configuration for data processing
-            dataloader_config: Configuration for data loaders
-            reference_channels_path: Path to reference channels pickle file
-            num_workers_ratio: Ratio of CPU cores to use for workers (default: 0.5)
-            **kwargs: Additional parameters for compatibility (unused)
-        """
-        super().__init__()
-        self.file_path = file_path
-        self.dataset_config = dataset_config
-        self.dataloader_config = dataloader_config
-        self.reference_channels_path = reference_channels_path
-        self.num_workers_ratio = num_workers_ratio
+    if config is None:
+        raise ValueError(f"Configuration file is empty: {config_path}")
 
-        self.predict_dataset: Optional[PredictDataset] = None
-        self.input_shape: Optional[torch.Size] = None
-        self.output_shape: Optional[torch.Size] = None
-        
-    def prepare_data(self):
-        """Prepare data - verify file exists."""
-        import os
-        if not os.path.exists(self.file_path):
-            raise FileNotFoundError(f"MEG file not found: {self.file_path}")
-            
-        # Verify it's a supported file type
-        if not (self.file_path.endswith('.fif') or self.file_path.endswith('.ds') or 
-                self.file_path.endswith('.meg')):
-            logger.warning(f"File type might not be supported: {self.file_path}")
-            
-    def setup(self, stage: Optional[str] = None):
-        """Set up the prediction dataset."""
-        if stage == 'predict' or stage is None:
-            self.predict_dataset = PredictDataset(
-                file_path=self.file_path,
-                dataset_config=self.dataset_config,
-                reference_channels_path=self.reference_channels_path,
+    def expand_env_vars(obj: Any, max_recursion_depth: int = 20) -> Any:
+        """Recursively expand environment variables in strings within the config."""
+        if max_recursion_depth <= 0:
+            raise ValueError(
+                "Maximum recursion depth reached while expanding environment variables. Default is 20."
             )
-           
-            # Set shapes
-            if len(self.predict_dataset) > 0:
-                sample = self.predict_dataset[0]
-                data = sample[0]  # chunk data
-                self.input_shape = data.shape
-                self.output_shape = torch.Size([data.shape[0]])  # n_windows
-                    
-                logger.info(f"Prediction dataset setup: {len(self.predict_dataset)} samples")
-                logger.info(f"Input shape: {self.input_shape}")
 
-    def predict_dataloader(self) -> torch.utils.data.DataLoader:
-        """Create the prediction dataloader with dynamic num_workers."""
-        if self.predict_dataset is None:
-            raise RuntimeError("Call setup() before getting prediction dataloader")
+        # if this is a dict, recurse into values
+        if isinstance(obj, dict):
+            return {
+                k: expand_env_vars(v, max_recursion_depth - 1) for k, v in obj.items()
+            }
+        # if this is a list, recurse into items
+        elif isinstance(obj, list):
+            return [expand_env_vars(i, max_recursion_depth - 1) for i in obj]
+        # if this is a string, expand env vars and user (~)
+        elif isinstance(obj, str):
+            expanded = os.path.expandvars(os.path.expanduser(obj))
+            return expanded
+        else:
+            return obj
 
-        predict_config = self.dataloader_config.get('predict', self.dataloader_config.get('test', {})).copy()
-
-        # Check that shuffle is False for prediction
-        if predict_config.get('shuffle', True):
-            logger.warning("Shuffle should be False for prediction dataloader, setting to False")
-            predict_config['shuffle'] = False
-
-        # Dynamically determine num_workers if not explicitly set or if set to 0
-        logger.info(f"Configuring predict dataloader with initial config: {predict_config}")
-        if 'num_workers' not in predict_config or predict_config['num_workers'] == 0:
-            optimal_workers = get_optimal_num_workers(
-                ratio=self.num_workers_ratio,
-                min_workers=0,
-                max_workers=None
-            )
-            predict_config['num_workers'] = optimal_workers
-            logger.info(f"Using dynamically determined num_workers={optimal_workers} "
-                       f"for predict dataloader (ratio={self.num_workers_ratio})")
-
-        # Use module-level predict_collate_fn
-        return torch.utils.data.DataLoader(
-            self.predict_dataset,
-            **predict_config,
-            collate_fn=predict_collate_fn,
-        )
-    
-    def get_input_shape(self) -> torch.Size:
-        """Get the input shape for model initialization."""
-        if self.input_shape is None:
-            raise RuntimeError("Call setup() before getting input shape")
-        return self.input_shape
-    
-    def get_output_shape(self) -> torch.Size:
-        """Get the output shape for model initialization."""
-        if self.output_shape is None:
-            raise RuntimeError("Call setup() before getting output shape")
-        return self.output_shape
+    config = expand_env_vars(config)
+    return config

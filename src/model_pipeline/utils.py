@@ -99,7 +99,7 @@ def load_raw_from_parquet(parquet_path: str, json_path: str) -> Tuple[mne.io.Raw
     df = pd.read_parquet(parquet_path)
     data = df.values.T  # shape: (n_channels, n_times)
 
-    with open(json_path, "r") as f:
+    with open(str(json_path), "r") as f:
         metadata = json.load(f)
 
     ch_names = metadata["ch_names"]
