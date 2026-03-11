@@ -19,6 +19,7 @@ from model_pipeline.sliding_windows_utils import (
     get_win_data_signal,
 )
 from model_pipeline.utils import (
+    read_raw,
     load_obj,
     compute_gfp,
     find_peak_gfp,
@@ -30,7 +31,10 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # === Helper functions specific to models ===
 def prepare_data(
-    raw,
+    signal_cache_path,
+    mne_info_cache_path,
+    data_path,
+    preprocessing_option,
     output_path,
     channel_groups,
     sfreq,
@@ -41,8 +45,26 @@ def prepare_data(
     with open("good_channels_dict.pkl", "rb") as f:
         good_channels = pickle.load(f)
 
+    if preprocessing_option == 'custom':
+        raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+
+        sfreq_orig = metadata['sfreq']
+
+        if sfreq_orig != sfreq:
+            raw.resample(sfreq)
+    
+    else:
+        raw = read_raw(
+            data_path,
+            preload=True,
+            verbose=False,
+            bad_channels=channel_groups.get("bad", []),
+        )
+        raw.filter(0.5, 50, n_jobs=8)
+        raw.resample(sfreq)
+
     save_data_matrices(
-        raw,
+        raw,             #type: ignore
         output_path,
         channel_groups,
         good_channels,
@@ -60,6 +82,7 @@ def load_model(model_name):
     """Load and compile a Keras model."""
     model = keras.models.load_model(model_name, compile=False)
     model.compile()
+    print(model.summary())
     return model
 
 
@@ -146,27 +169,25 @@ def test_model(
     output_path,
     signal_cache_path,
     mne_info_cache_path,
+    data_path,
+    preprocessing_option,
     adjust_onset=True,
     channel_groups=None,
     signal_name=None,
 ):
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
-    raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
-
     # Params
     window_size = 0.2
     sfreq_model = 150
-    sfreq_orig = metadata['sfreq']
-
-    if sfreq_orig != sfreq_model:
-        raw = raw.resample(sfreq_model)
-
     dim = (int(sfreq_model * window_size), 275, 1)
     spike_spacing_from_borders = 0.03
 
     # 1. Data preparation
     X_test_ids = prepare_data(
-        raw,
+        signal_cache_path,
+        mne_info_cache_path,
+        data_path,
+        preprocessing_option,
         output_path,
         channel_groups,
         sfreq_model,

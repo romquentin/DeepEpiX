@@ -167,6 +167,8 @@ def test_model(
     output_path,
     signal_cache_path,
     mne_info_cache_path,
+    data_path,
+    preprocessing_option,
     adjust_onset=True,
     channel_groups=None,
     signal_name=None,
@@ -190,6 +192,8 @@ def test_model(
 
     # Create prediction datamodule
     prediction_config = {
+        "data_path": data_path,
+        "preprocessing_option": preprocessing_option,
         "signal_path": signal_cache_path,
         "mne_info_path": mne_info_cache_path,
         "reference_channels_path": reference_channels_path,

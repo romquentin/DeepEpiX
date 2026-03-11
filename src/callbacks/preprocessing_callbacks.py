@@ -102,18 +102,15 @@ def register_preprocess_meg_data():
                 raw = dpu.read_raw(
                     data_path, preload=True, verbose=False, bad_channels=None
                 )
-                modality = dpu.get_raw_modality(raw)
 
-                print("COUCOU1")
+                modality = dpu.get_raw_modality(raw)
 
                 all_bad_channels = dpu.get_bad_channels(raw, bad_channels)
                 if all_bad_channels:
                     raw.drop_channels(all_bad_channels)
-                print("COUCOU2")
                 annotations_dict = au.get_annotations_dataframe(
                     raw, heartbeat_ch_name, modality
                 )
-                print("COUCOU3")
 
                 # #--- Find .mrk file if data_path is a directory ---
                 # annotations_dict = au.get_mrk_annotations_dataframe(
@@ -125,7 +122,6 @@ def register_preprocess_meg_data():
                 )
                 max_length = pu.get_max_length(raw, resample_freq)
                 chunk_limits = pu.update_chunk_limits(max_length)
-                print("COUCOU4")
 
                 freq_data = {
                     "resample_freq": resample_freq,
@@ -135,8 +131,7 @@ def register_preprocess_meg_data():
                 }
 
                 prep_raw = pu.sort_filter_resample(data_path, freq_data, channels_dict)
-                print("COUCOU5")
-
+                
                 for chunk_idx in chunk_limits:
                     start_time, end_time = chunk_idx
                     _, prep_raw = pu.get_preprocessed_dataframe_dask(
@@ -147,7 +142,6 @@ def register_preprocess_meg_data():
                         channels_dict,
                         prep_raw=prep_raw,
                     )
-                    print("COUCOU6")
 
                 cache_file = pu.get_cache_filename(data_path, freq_data)
                 pu.save_mne_sidecar(cache_file, prep_raw)

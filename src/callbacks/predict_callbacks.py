@@ -101,6 +101,7 @@ def register_execute_predict_script():
         State("model-probabilities-store", "data"),
         State("sensitivity-analysis-store", "data"),
         State("channel-store", "data"),
+        State("predict-preprocess-choice", "value"),
         prevent_initial_call=True,
     )
     def _execute_predict_script(
@@ -119,6 +120,7 @@ def register_execute_predict_script():
         model_probabilities_store,
         sensitivity_analysis_store,
         channel_store,
+        preprocessing_option,
     ):
         """
         Execute model inference and sensitivity analysis via external subprocesses.
@@ -162,7 +164,11 @@ def register_execute_predict_script():
             Cached paths to existing SmoothGrad pickle files.
         channel_store : str
             Serialized string representation of the selected channels.
-
+        preprocessing_option : str
+            Version of the signal to use:
+                - 'custom' will use the signal preprocessed during the session;
+                - 'same_as_training' will preprocess the signal from scratch using model's specific configuration.
+        
         Returns
         -------
         prediction_status : str or bool
@@ -198,91 +204,44 @@ def register_execute_predict_script():
             return None, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         if not data_path:
-            error_message = "⚠️ Please choose a subject to display on Home page."
-            return (
-                error_message,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-            )
+            return "⚠️ Please choose a subject to display on Home page.", dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        missing_fields = []
-        if not model_path:
-            missing_fields.append("Model")
-        if not venv:
-            missing_fields.append("Environment")
+        missing_fields = [f for f, v in [("Model", model_path), ("Environment", venv)] if not v]
+
         if missing_fields:
-            error_message = (
-                f"⚠️ Please fill in all required fields: {', '.join(missing_fields)}"
-            )
-            return (
-                error_message,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-            )
+            return f"⚠️ Please fill in all required fields: {', '.join(missing_fields)}", dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         excluded_ica_comp = None
         if signal_version != "__raw__":
             excluded_ica_comp = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
 
-        if signal_version == "__raw__":
-            signal_name = "raw"
-        else:
-            signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
+        signal_name = "raw" if signal_version == "__raw__" else os.path.basename(signal_version).split("-ica.fif")[0]
 
         cache_dir = config.CACHE_DIR
-        if excluded_ica_comp is not None:
-            predictions_csv_path = (
-                cache_dir / f"{os.path.basename(model_path)}_{signal_name}_{excluded_ica_comp}_predictions.csv"
-            )
-            smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name}_smoothGrad.pkl"
-        else:
-            predictions_csv_path = (
-                cache_dir / f"{os.path.basename(model_path)}_{signal_name}_predictions.csv"
-            )
-            smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name}_smoothGrad.pkl"
+        signal_name_with_ica = f"{signal_name}_{excluded_ica_comp}" if excluded_ica_comp is not None else signal_name
 
-        # If already exists, skip execution
-        if predictions_csv_path.exists():
-            if not sensitivity_analysis or smoothgrad_path.exists():
-                return (
-                    "✅ Reusing existing model predictions",
-                    0,
-                    {"display": "block"},
-                    [str(predictions_csv_path)],
-                    [str(smoothgrad_path)] if smoothgrad_path.exists() else dash.no_update,
-                )
-            """"
-            if (
-                sensitivity_analysis
-                and smoothgrad_path.exists()
-                and str(smoothgrad_path) in model_probabilities_store
-            ):
-                return (
-                    "✅ Reusing existing model predictions",
-                    0,
-                    {"display": "block"},
-                    dash.no_update,
-                    dash.no_update,
-                )
-            elif not sensitivity_analysis:
-                return (
-                    "✅ Reusing existing model predictions",
-                    0,
-                    {"display": "block"},
-                    dash.no_update,
-                    dash.no_update,
-                )"""
+        predictions_csv_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_ica}_predictions.csv"
+        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_ica}_smoothGrad.pkl"
+
+        need_predictions = not predictions_csv_path.exists()
+        need_smoothgrad = sensitivity_analysis and not smoothgrad_path.exists()
+
+        if not need_predictions and not need_smoothgrad:
+            return (
+                "✅ Reusing existing model predictions",
+                0,
+                {"display": "block"},
+                [str(predictions_csv_path)],
+                [str(smoothgrad_path)] if smoothgrad_path.exists() else dash.no_update,
+            )
             
         meta = (history_data or {}).get("metadata", {})
         ica_results = meta.get("ica_results", {})
-        if signal_version and signal_version != "__raw__" and signal_version in ica_results:
-            excluded_ica = ica_results[signal_version].get("excluded_components", [])
-        else:
-            excluded_ica = None
+        excluded_ica = (
+            ica_results[signal_version].get("excluded_components", [])
+            if signal_version and signal_version != "__raw__" and signal_version in ica_results
+            else None
+        )
 
         signal_cache_path = os.path.join(
             cache_dir, 
@@ -294,13 +253,10 @@ def register_execute_predict_script():
             signal = pru.extract_preprocess_signal(
                 data_path, freq_data, channels_dict, chunk_limits, excluded_ica
             )
-            clean_variance = signal.var().mean()
-            print(f"Variance : {clean_variance}")
-            print(f"Signal shape : {signal.shape}")
-            signal.to_parquet(signal_cache_path)
-            
+            print(f"Variance : {signal.var().mean()} | Shape : {signal.shape}")
+            signal.to_parquet(signal_cache_path)     
         else:
-            print(f"✅ Signal cache déjà existant — skip extraction ({signal_cache_path})")
+            print(f"✅ Signal already in cache — skip extraction ({signal_cache_path})")
 
         # Otherwise, execute model
         if "TensorFlow" in venv:
@@ -308,45 +264,41 @@ def register_execute_predict_script():
         elif "PyTorch" in venv:
             ACTIVATE_ENV = str(config.TORCH_ENV / "bin/python")
 
-        if excluded_ica_comp is not None:
-            signal_name = f"{signal_name}_{excluded_ica_comp}"
-
-        command = [
-            ACTIVATE_ENV,
-            str(config.MODEL_PIPELINE_DIR / "main.py"),
-            str(model_path),
-            str(venv),
-            str(data_path),
-            str(cache_dir),
-            str(adjust_onset),
-            str(channel_store),
-            str(signal_cache_path),
-            str(mne_info_path),
-            str(signal_name),
-        ]
-
-        working_dir = str(config.APP_ROOT)
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(working_dir)
+        env["PYTHONPATH"] = str(config.APP_ROOT)
 
-        try:
-            start_time = time.time()
-            subprocess.run(
-                command, env=env, text=True, cwd=str(config.MODEL_PIPELINE_DIR)
-            )  # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            model_probabilities_store = [str(predictions_csv_path)]
-            print(f"Model testing executed in {time.time()-start_time:.2f} seconds")
+        if need_predictions:
+            command = [
+                ACTIVATE_ENV,
+                str(config.MODEL_PIPELINE_DIR / "main.py"),
+                str(model_path),
+                str(venv),
+                str(data_path),
+                str(cache_dir),
+                str(adjust_onset),
+                str(channel_store),
+                str(signal_cache_path),
+                str(mne_info_path),
+                str(signal_name_with_ica),
+                str(preprocessing_option),
+            ]
 
-        except Exception as e:
-            return (
-                f"⚠️ Error running model: {e}",
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-            )
+            try:
+                start_time = time.time()
+                subprocess.run(
+                    command, env=env, text=True, cwd=str(config.MODEL_PIPELINE_DIR)
+                )  # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"Model testing executed in {time.time()-start_time:.2f} seconds")
 
-        if sensitivity_analysis:
+            except Exception as e:
+                return f"⚠️ Error running model: {e}", dash.no_update, dash.no_update, dash.no_update, dash.no_update,
+    
+        if not predictions_csv_path.exists():
+                return "⚠️ Error running prediction.", 0, {"display": "block"}, model_probabilities_store, dash.no_update
+    
+        model_probabilities_store = [str(predictions_csv_path)]
+
+        if need_smoothgrad:
             command = [
                 ACTIVATE_ENV,
                 str(config.MODEL_PIPELINE_DIR / "run_smoothgrad.py"),
@@ -356,53 +308,29 @@ def register_execute_predict_script():
                 str(predictions_csv_path),
                 str(smoothgrad_threshold),
                 str(mne_info_path),
-                str(signal_name),
+                str(signal_name_with_ica),
             ]
 
             try:
-                # Start timing for the second subprocess
                 start_time = time.time()
                 subprocess.run(
                     command, env=env, text=True, cwd=str(config.MODEL_PIPELINE_DIR)
-                )  # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                )
                 print(f"Smoothgrad executed in {time.time()-start_time:.2f} seconds")
 
             except Exception as e:
-                return (
-                    f"⚠️ Error running smoothgrad: {e}",
-                    0,
-                    {"display": "block"},
-                    model_probabilities_store,
-                    dash.no_update,
-                )
-
-            sensitivity_analysis_store = [str(smoothgrad_path)]
+                return f"⚠️ Error running smoothgrad: {e}", 0, {"display": "block"}, model_probabilities_store, dash.no_update
 
             if not smoothgrad_path.exists():
-                return (
-                    "⚠️ Error running smoothgrad.",
-                    0,
-                    {"display": "block"},
-                    model_probabilities_store,
-                    dash.no_update,
-                )
-            return (
-                True,
-                0,
-                {"display": "block"},
-                model_probabilities_store,
-                sensitivity_analysis_store,
-            )
+                return "⚠️ Error running smoothgrad.", 0, {"display": "block"}, model_probabilities_store, dash.no_update
 
-        if not predictions_csv_path.exists():
-            return (
-                "⚠️ Error running model.",
-                0,
-                {"display": "none"},
-                dash.no_update,
-                dash.no_update,
-            )
-        return True, 0, {"display": "block"}, model_probabilities_store, dash.no_update
+        return (
+            True,
+            0,
+            {"display": "block"},
+            model_probabilities_store,
+            sensitivity_analysis_store,
+        )
 
 
 @callback(
@@ -461,11 +389,11 @@ def update_spike_name(model_path, signal_version, history_data):
     model_name = os.path.splitext(os.path.basename(model_path))[0]
     if signal_version == "__raw__":
         signal_name = "raw"
+        return f"{model_name}_{signal_name}"
     else:
         signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
-    excluded = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
-
-    return f"{model_name}_{signal_name}_{excluded}"
+        excluded = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
+        return f"{model_name}_{signal_name}_{excluded}"
 
 
 def register_store_display_prediction():

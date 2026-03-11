@@ -47,7 +47,7 @@ def register_display_bad_channels_to_save_checkboxes():
             for bad_chan in bad_channels
         ]
         value = [f"{bad_chan}" for bad_chan in bad_channels]
-        return options, value  # Set all annotations as default selected
+        return options, value
 
 
 def register_save_modifications():

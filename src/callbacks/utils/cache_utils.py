@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 
-def clear_old_cache_files(cache_dir, max_age_minutes=60, verbose=True):
+def clear_old_cache_files(cache_dir, max_age_minutes=120, verbose=True):
     """
     Delete files older than `max_age_minutes` from a cache directory.
 

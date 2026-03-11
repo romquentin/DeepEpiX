@@ -113,6 +113,12 @@ def load_raw_from_parquet(parquet_path: str, json_path: str) -> Tuple[mne.io.Raw
     )
     info["bads"] = metadata.get("bads", [])
 
+    if "lowpass" in metadata:
+        dict.__setitem__(info, "lowpass", float(metadata["lowpass"]))
+    
+    if "highpass" in metadata:
+        dict.__setitem__(info, "highpass", float(metadata["highpass"]))
+
     return mne.io.RawArray(data, info, verbose=False), metadata
 
 
