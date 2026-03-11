@@ -5,6 +5,7 @@ matplotlib
 scikit-learn
 dash
 plotly
+python-picard
 Flask-Caching
 mne
 dash-bootstrap-components

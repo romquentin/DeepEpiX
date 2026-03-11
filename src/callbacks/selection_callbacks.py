@@ -181,9 +181,9 @@ def register_fill_signal_versions():
             excluded = ica_meta.get("excluded_components", [])
             if not excluded:
                 continue
+            name = os.path.basename(ica_path).removesuffix("-ica.fif")
             label = (
-                f"ICA · {os.path.basename(ica_path)} "
-                f"— excl. {excluded}"
+                f"ICA · {name}_{excluded}"
             )
             options.append({"label": label, "value": ica_path})
 

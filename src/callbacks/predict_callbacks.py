@@ -72,8 +72,9 @@ def register_fill_signal_versions_predict():
             excluded = ica_meta.get("excluded_components", [])
             if not excluded:
                 continue
+            name = os.path.basename(ica_path).removesuffix("-ica.fif")
             options.append({
-                "label": f"ICA · {os.path.basename(ica_path)} — excl. {excluded}",
+                "label": f"ICA · {name}_{excluded}",
                 "value": ica_path,
             })
         return options 
@@ -223,6 +224,9 @@ def register_execute_predict_script():
                 dash.no_update,
             )
 
+        excluded_ica_comp = None
+        if signal_version != "__raw__":
+            excluded_ica_comp = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
 
         if signal_version == "__raw__":
             signal_name = "raw"
@@ -230,10 +234,16 @@ def register_execute_predict_script():
             signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
 
         cache_dir = config.CACHE_DIR
-        predictions_csv_path = (
-            cache_dir / f"{os.path.basename(model_path)}_{signal_name}_predictions.csv"
-        )
-        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name}_smoothGrad.pkl"
+        if excluded_ica_comp is not None:
+            predictions_csv_path = (
+                cache_dir / f"{os.path.basename(model_path)}_{signal_name}_{excluded_ica_comp}_predictions.csv"
+            )
+            smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name}_smoothGrad.pkl"
+        else:
+            predictions_csv_path = (
+                cache_dir / f"{os.path.basename(model_path)}_{signal_name}_predictions.csv"
+            )
+            smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name}_smoothGrad.pkl"
 
         # If already exists, skip execution
         if predictions_csv_path.exists():
@@ -274,15 +284,10 @@ def register_execute_predict_script():
         else:
             excluded_ica = None
 
-        print(f"Signal version : {signal_version}")
-        print(f"Excluded ica : {excluded_ica}")
-        print(f"History data : {history_data}")
-
         signal_cache_path = os.path.join(
             cache_dir, 
             f"signal_{hashlib.md5(f'{data_path}_{json.dumps(freq_data, sort_keys=True)}_{sorted(excluded_ica) if excluded_ica else []}'.encode()).hexdigest()}.parquet"
         )
-
         mne_info_path = pu.get_cache_filename(data_path, freq_data).replace(".parquet", "_mne_meta.json")
 
         if not os.path.exists(signal_cache_path):
@@ -302,6 +307,9 @@ def register_execute_predict_script():
             ACTIVATE_ENV = str(config.TENSORFLOW_ENV / "bin/python")
         elif "PyTorch" in venv:
             ACTIVATE_ENV = str(config.TORCH_ENV / "bin/python")
+
+        if excluded_ica_comp is not None:
+            signal_name = f"{signal_name}_{excluded_ica_comp}"
 
         command = [
             ACTIVATE_ENV,
@@ -442,21 +450,22 @@ def update_prediction_table(style, threshold, prediction_csv_path):
 @callback(
     Output("model-spike-name", "value"),
     Input("model-dropdown", "value"),
-    Input("adjusted-threshold", "value"),
     Input("signal-version-predict", "value"),
+    State("history-store", "data"),
     prevent_initial_call=True,
 )
-def update_spike_name(model_path, threshold_value, signal_version):
+def update_spike_name(model_path, signal_version, history_data):
     """ Update predicted spike annotation's name"""
-    if model_path is None or threshold_value is None:
+    if model_path is None:
         return dash.no_update
     model_name = os.path.splitext(os.path.basename(model_path))[0]
     if signal_version == "__raw__":
         signal_name = "raw"
     else:
         signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
+    excluded = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
 
-    return f"{model_name}_{threshold_value}_{signal_name}"
+    return f"{model_name}_{signal_name}_{excluded}"
 
 
 def register_store_display_prediction():
