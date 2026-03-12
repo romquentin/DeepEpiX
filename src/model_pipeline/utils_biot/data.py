@@ -11,8 +11,6 @@ import pickle
 from pathlib import Path
 import yaml
 import traceback
-import mne
-import pathlib
 
 from model_pipeline.utils import load_raw_from_parquet
 from utils_biot.models import BIOTClassifier, BIOTHierarchicalClassifier
@@ -29,8 +27,6 @@ class PredictionDataModule(L.LightningDataModule):
 
     def __init__(
         self,
-        data_path: str,
-        preprocessing_option: str,
         signal_path: str,
         mne_info_path: str,
         dataset_config: Dict[str, Any],
@@ -42,8 +38,6 @@ class PredictionDataModule(L.LightningDataModule):
         """Initialize prediction data module.
 
         Args:
-            data_path: Path to the data file
-            preprocessing_option: Type of preprocessing to apply (custom or training)
             signal_path: Path to the preprocessed .parquet file
             mne_info_path: Path to the .json information file
             dataset_config: Configuration for data processing
@@ -53,8 +47,6 @@ class PredictionDataModule(L.LightningDataModule):
             **kwargs: Additional parameters for compatibility (unused)
         """
         super().__init__()
-        self.data_path = data_path
-        self.preprocessing_option = preprocessing_option
         self.signal_path = signal_path
         self.mne_info_path = mne_info_path
         self.dataset_config = dataset_config
@@ -75,8 +67,6 @@ class PredictionDataModule(L.LightningDataModule):
         """Set up the prediction dataset."""
         if stage == 'predict' or stage is None:
             self.predict_dataset = PredictDataset(
-                data_path=self.data_path,
-                preprocessing_option = self.preprocessing_option,
                 signal_path=self.signal_path,
                 mne_info_path=self.mne_info_path,
                 dataset_config=self.dataset_config,
@@ -137,8 +127,6 @@ class PredictDataset(torch.utils.data.Dataset):
 
     def __init__(
         self,
-        data_path: str,
-        preprocessing_option: str,
         signal_path: str,
         mne_info_path: str,
         dataset_config: Dict[str, Any],
@@ -148,15 +136,11 @@ class PredictDataset(torch.utils.data.Dataset):
         """Initialize prediction dataset with sequential chunk extraction.
 
         Args:
-            data_path: Path to the data file
-            preprocessing_option: Type of preprocessing to apply (custom or training)
             signal_path: Path to the preprocessed signal file (.parquet).
             mne_info_path: Path to the .json information file
             dataset_config: Configuration for data processing.
             n_channels: Number of MEG channels (default: 275) for consistent input size.
         """
-        self.data_path = data_path
-        self.preprocessing_option = preprocessing_option
         self.signal_path = signal_path
         self.mne_info_path = mne_info_path
         self.dataset_config = dataset_config
@@ -180,8 +164,6 @@ class PredictDataset(torch.utils.data.Dataset):
         """Load and preprocess the MEG recording once."""
         try:
             raw, self.meg_data, self.channel_info = load_and_process_meg_data(
-                self.data_path,
-                self.preprocessing_option,
                 self.signal_path,
                 self.mne_info_path,
                 self.dataset_config,
@@ -610,8 +592,6 @@ def get_optimal_num_workers(ratio: float = 0.5, min_workers: int = 0, max_worker
     return optimal_workers
 
 def load_and_process_meg_data(
-    data_path: str,
-    preprocessing_option: str,
     signal_cache_path: str,
     mne_info_cache_path: str,
     config: Dict[str, Any],
@@ -636,38 +616,10 @@ def load_and_process_meg_data(
     """
     USE_REFERENCE_CHANNELS = False
     try:
-        if preprocessing_option == 'custom':
-            raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+        raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
 
-            if raw.info['sfreq'] != config['sampling_rate']:
-                raw.resample(sfreq=config['sampling_rate'])
-        else:
-            print("COUCOU CHARGEMENT")
-            print(f"preprocessing_option : {preprocessing_option}")
-            if ".ds" in data_path:
-                raw = mne.io.read_raw_ctf(data_path, preload=False).pick(picks=['meg'], exclude='bads').load_data()
-                USE_REFERENCE_CHANNELS = True
-            elif ".fif" in data_path:
-                raw = mne.io.read_raw_fif(data_path, preload=False).pick(picks=['meg'], exclude='bads').load_data()
-            elif os.path.isdir(data_path):
-                subject_path = pathlib.Path(data_path)
-                files = list(subject_path.glob("*"))
-                raw_fname = next((f for f in files if "rfDC" in f.name and f.suffix == ""), None)
-                config_fname = next((f for f in files if "config" in f.name.lower()), None)
-                hs_fname = next((f for f in files if "hs" in f.name.lower()), None)
-
-                if not all([raw_fname, config_fname, hs_fname]):
-                    raise ValueError("Missing BTi raw/config/hs files.")
-                
-                raw = mne.io.read_raw_bti(
-                    pdf_fname=str(raw_fname),
-                    config_fname=str(config_fname),
-                    head_shape_fname=str(hs_fname),
-                    preload=False,
-                    verbose=False,
-                ).pick(picks=['meg'], exclude='bads').load_data()
-            else:
-                raise ValueError("Unsupported file type for subject path.")
+        if raw.info['sfreq'] != config['sampling_rate']:
+            raw.resample(sfreq=config['sampling_rate'])
 
         if good_channels is None or not USE_REFERENCE_CHANNELS:
             good_channels = list(raw.ch_names)  # Use all available channels if no reference provided
@@ -675,21 +627,14 @@ def load_and_process_meg_data(
 
             if len(good_channels) > n_channels:
                 good_channels = good_channels[:n_channels]
-        
+
         # Select channels based on good channels and location information
         raw, channel_info = select_channels(raw, good_channels)
 
-        if preprocessing_option == 'same_as_training':
-            print("COUCOU FILTRAGE")
-            raw.filter(l_freq=config.get('l_freq', 0.5), h_freq=config.get('h_freq', 95.0))
-            
-            if config.get('notch_freq', 50.0) > 0:
-                freqs = np.arange(config['notch_freq'], config['sampling_rate']/2, config['notch_freq']).tolist()
-                raw.notch_filter(freqs=freqs)
-        
-            if raw.info['sfreq'] != config['sampling_rate']:
-                raw.resample(sfreq=config['sampling_rate'])
-                
+        print("########################################")
+        print(raw.info["ch_names"])
+        print(len(raw.info["ch_names"]))
+
         # Get raw data from MNE (in order of selected_channels)
         raw_data = np.array(raw.get_data())  # Shape: (n_selected_channels, n_timepoints)
         n_timepoints = raw_data.shape[1]

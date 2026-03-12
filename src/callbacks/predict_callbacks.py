@@ -219,9 +219,10 @@ def register_execute_predict_script():
 
         cache_dir = config.CACHE_DIR
         signal_name_with_ica = f"{signal_name}_{excluded_ica_comp}" if excluded_ica_comp is not None else signal_name
+        signal_name_with_preprocess = f"{signal_name_with_ica}_{preprocessing_option}"
 
-        predictions_csv_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_ica}_predictions.csv"
-        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_ica}_smoothGrad.pkl"
+        predictions_csv_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_preprocess}_predictions.csv"
+        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_preprocess}_smoothGrad.pkl"
 
         need_predictions = not predictions_csv_path.exists()
         need_smoothgrad = sensitivity_analysis and not smoothgrad_path.exists()
@@ -234,30 +235,40 @@ def register_execute_predict_script():
                 [str(predictions_csv_path)],
                 [str(smoothgrad_path)] if smoothgrad_path.exists() else dash.no_update,
             )
-            
-        meta = (history_data or {}).get("metadata", {})
-        ica_results = meta.get("ica_results", {})
-        excluded_ica = (
-            ica_results[signal_version].get("excluded_components", [])
-            if signal_version and signal_version != "__raw__" and signal_version in ica_results
-            else None
-        )
-
-        signal_cache_path = os.path.join(
-            cache_dir, 
-            f"signal_{hashlib.md5(f'{data_path}_{json.dumps(freq_data, sort_keys=True)}_{sorted(excluded_ica) if excluded_ica else []}'.encode()).hexdigest()}.parquet"
-        )
-        mne_info_path = pu.get_cache_filename(data_path, freq_data).replace(".parquet", "_mne_meta.json")
-
-        if not os.path.exists(signal_cache_path):
-            signal = pru.extract_preprocess_signal(
-                data_path, freq_data, channels_dict, chunk_limits, excluded_ica
+        mne_info_path = "None"
+        if preprocessing_option =="custom":
+            meta = (history_data or {}).get("metadata", {})
+            ica_results = meta.get("ica_results", {})
+            excluded_ica = (
+                ica_results[signal_version].get("excluded_components", [])
+                if signal_version and signal_version != "__raw__" and signal_version in ica_results
+                else None
             )
-            print(f"Variance : {signal.var().mean()} | Shape : {signal.shape}")
-            signal.to_parquet(signal_cache_path)     
-        else:
-            print(f"✅ Signal already in cache — skip extraction ({signal_cache_path})")
 
+            signal_cache_path = os.path.join(
+                cache_dir, 
+                f"signal_{hashlib.md5(f'{data_path}_{json.dumps(freq_data, sort_keys=True)}_{sorted(excluded_ica) if excluded_ica else []}_{preprocessing_option}'.encode()).hexdigest()}.parquet"
+            )
+            mne_info_path = pu.get_cache_filename(data_path, freq_data).replace(".parquet", "_mne_meta.json")
+
+            if not os.path.exists(signal_cache_path):
+                signal = pru.extract_preprocess_signal(
+                    data_path, freq_data, channels_dict, chunk_limits, excluded_ica
+                )
+                print(f"Variance : {signal.var().mean()} | Shape : {signal.shape}")
+                signal.to_parquet(signal_cache_path)     
+            else:
+                print(f"✅ Signal already in cache — skip extraction ({signal_cache_path})")
+
+        else:
+            print("🔄 Applying training preprocessing to signal...")
+            signal_cache_path = os.path.join(
+                cache_dir,
+                f"signal_train_preproc_{hashlib.md5(f'{data_path}_{os.path.basename(model_path)}'.encode()).hexdigest()}.parquet"
+            )
+            model_config = "/home/labmember/Desktop/workspace_GIT/DeepEpiX/src/static/model_config.json"
+            mne_info_path, df = pu.preprocess_same_as_training(model_config, model_path, data_path, channels_dict, signal_cache_path)
+        
         # Otherwise, execute model
         if "TensorFlow" in venv:
             ACTIVATE_ENV = str(config.TENSORFLOW_ENV / "bin/python")
@@ -279,7 +290,7 @@ def register_execute_predict_script():
                 str(channel_store),
                 str(signal_cache_path),
                 str(mne_info_path),
-                str(signal_name_with_ica),
+                str(signal_name_with_preprocess),
                 str(preprocessing_option),
             ]
 
@@ -308,7 +319,7 @@ def register_execute_predict_script():
                 str(predictions_csv_path),
                 str(smoothgrad_threshold),
                 str(mne_info_path),
-                str(signal_name_with_ica),
+                str(signal_name_with_preprocess),
             ]
 
             try:

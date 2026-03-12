@@ -14,7 +14,6 @@ def run_model_pipeline(
     signal_cache_path,
     mne_info_cache_path,
     signal_name,
-    preprocessing_option,
 ):
     
     # === Determine module based on model_name ===
@@ -43,8 +42,6 @@ def run_model_pipeline(
         adjust_onset=adjust_onset,
         channel_groups=channel_groups,
         signal_name=signal_name,
-        data_path=data_path,
-        preprocessing_option=preprocessing_option
     )
 
 
@@ -58,7 +55,6 @@ if __name__ == "__main__":
     signal_cache_path = sys.argv[7]
     mne_info_cache_path = sys.argv[8]
     signal_name = sys.argv[9]
-    preprocessing_option = sys.argv[10]
     
     if not os.path.exists(signal_cache_path):
         raise FileNotFoundError(f"Singal file not found: {signal_cache_path}")
@@ -75,5 +71,4 @@ if __name__ == "__main__":
         signal_cache_path,
         mne_info_cache_path,
         signal_name,
-        preprocessing_option,
     )

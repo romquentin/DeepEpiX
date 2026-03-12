@@ -134,7 +134,7 @@ def register_preprocess_meg_data():
                 
                 for chunk_idx in chunk_limits:
                     start_time, end_time = chunk_idx
-                    _, prep_raw = pu.get_preprocessed_dataframe_dask(
+                    _, _ = pu.get_preprocessed_dataframe_dask(
                         data_path,
                         freq_data,
                         start_time,
@@ -143,6 +143,7 @@ def register_preprocess_meg_data():
                         prep_raw=prep_raw,
                     )
 
+                print("COUCOU")
                 cache_file = pu.get_cache_filename(data_path, freq_data)
                 pu.save_mne_sidecar(cache_file, prep_raw)
 

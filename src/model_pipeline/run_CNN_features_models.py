@@ -19,7 +19,6 @@ from model_pipeline.sliding_windows_utils import (
     get_win_data_signal,
 )
 from model_pipeline.utils import (
-    read_raw,
     load_obj,
     compute_gfp,
     find_peak_gfp,
@@ -33,8 +32,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 def prepare_data(
     signal_cache_path,
     mne_info_cache_path,
-    data_path,
-    preprocessing_option,
     output_path,
     channel_groups,
     sfreq,
@@ -45,22 +42,10 @@ def prepare_data(
     with open("good_channels_dict.pkl", "rb") as f:
         good_channels = pickle.load(f)
 
-    if preprocessing_option == 'custom':
-        raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+    raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+    sfreq_orig = metadata['sfreq']
 
-        sfreq_orig = metadata['sfreq']
-
-        if sfreq_orig != sfreq:
-            raw.resample(sfreq)
-    
-    else:
-        raw = read_raw(
-            data_path,
-            preload=True,
-            verbose=False,
-            bad_channels=channel_groups.get("bad", []),
-        )
-        raw.filter(0.5, 50, n_jobs=8)
+    if sfreq_orig != sfreq:
         raw.resample(sfreq)
 
     save_data_matrices(
@@ -169,8 +154,6 @@ def test_model(
     output_path,
     signal_cache_path,
     mne_info_cache_path,
-    data_path,
-    preprocessing_option,
     adjust_onset=True,
     channel_groups=None,
     signal_name=None,
@@ -186,8 +169,6 @@ def test_model(
     X_test_ids = prepare_data(
         signal_cache_path,
         mne_info_cache_path,
-        data_path,
-        preprocessing_option,
         output_path,
         channel_groups,
         sfreq_model,

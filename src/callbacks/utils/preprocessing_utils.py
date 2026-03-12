@@ -204,21 +204,29 @@ def get_preprocessed_dataframe_dask(
         return sort_filter_resample(data_path, freq_data, channels_dict)
 
     @delayed
-    def crop_and_to_df(prep_raw):
-        raw_chunk = prep_raw.copy().crop(tmin=start_time, tmax=end_time)
-        return raw_chunk.to_data_frame(picks="all", index="time")
+    def crop_and_to_df(prep_raw, s, e):
+        raw_chunk = prep_raw.copy().crop(tmin=s, tmax=e, include_tmax=False)
+        df = raw_chunk.to_data_frame(picks="all", index="time")
+        current_min = df.index.min()
+        if abs(current_min - s) > 1e-5:
+            new_index = np.round(df.index.values + s, 8)
+            df.index = new_index
+            
+        return df
 
+    """
     @delayed
     def standardize(raw_df):
         return raw_df - raw_df.mean(axis=0)
-
+    """
+    
     if prep_raw is None:
         prep_raw = load_sort_filter()
 
-    raw_df = crop_and_to_df(prep_raw)
-    raw_df_std = standardize(raw_df)
+    raw_df = crop_and_to_df(prep_raw, start_time, end_time)
+    #raw_df_std = standardize(raw_df)
 
-    df = raw_df_std.compute()
+    df = raw_df.compute()
     ddf = dd.from_pandas(df, npartitions=10) #type: ignore
     ddf.to_parquet(cache_file)
 
@@ -551,3 +559,38 @@ def compute_power_spectrum_decomposition(data_path, freq_data, theme="light"):
     )
 
     return dcc.Graph(figure=psd_fig)
+
+# PREDICTION ######################################################
+
+def preprocess_same_as_training(model_config, model_name, data_path, channels_dict, cache_file):
+    with open(model_config, 'r') as file:
+        config = json.load(file)
+
+    model_name = os.path.basename(model_name)
+    model_cfg = config.get(model_name, {})
+
+    notch = model_cfg.get("notch")
+    freq_data = {
+        "resample_freq": model_cfg.get("sfreq"),
+        "low_pass_freq":  model_cfg.get("lowpass"),
+        "high_pass_freq": model_cfg.get("highpass"),
+        "notch_freq":     None if notch == "None" else notch,
+    }
+    
+    @delayed
+    def load_sort_filter():
+        return sort_filter_resample(data_path, freq_data, channels_dict)
+
+    @delayed
+    def to_df(prep_raw):
+        return prep_raw.to_data_frame(picks="all", index="time")
+
+    prep_raw = load_sort_filter()
+    raw_df = to_df(prep_raw)
+    df = raw_df.compute()
+    df.to_parquet(cache_file)
+
+    save_mne_sidecar(cache_file, prep_raw)
+    mne_info_path = cache_file.replace(".parquet", "_mne_meta.json")
+
+    return mne_info_path, df

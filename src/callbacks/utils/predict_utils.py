@@ -69,7 +69,8 @@ def extract_preprocess_signal(
         )
 
     if missing_segments:
-        print(f"⚠️ {len(missing_segments)} segment(s) manquant(s) — preprocessing ciblé...")
+        prep_raw_obj = pu.sort_filter_resample(data_path, freq_data, channels_dict)
+
         for chunk in missing_segments:
             pu.get_preprocessed_dataframe_dask(
                 data_path=data_path,
@@ -79,6 +80,7 @@ def extract_preprocess_signal(
                 channels_dict=channels_dict,
                 excluded_ica_components=excluded_ica_components,
                 cache_dir=cache_dir,
+                prep_raw=prep_raw_obj,
             )
 
         found_segments, _ = _find_cached_segments(

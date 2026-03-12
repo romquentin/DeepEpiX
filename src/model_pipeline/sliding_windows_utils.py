@@ -81,7 +81,7 @@ def save_data_matrices(
     
     def get_base(name):
         return name.split()[0].split("-")[0].strip()
-    
+       
     current_basenames = {get_base(ch) for ch in raw.info["ch_names"]}
     can_interpolate = bool(current_basenames & set(good_channels.keys()))
 
