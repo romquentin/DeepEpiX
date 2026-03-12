@@ -15,6 +15,8 @@ from callbacks.utils import history_utils as hu
 from callbacks.utils import preprocessing_utils as pu
 from callbacks.utils import predict_utils as pru
 
+from config import STATIC_DIR
+
 
 def register_update_selected_model():
     @callback(
@@ -266,7 +268,9 @@ def register_execute_predict_script():
                 cache_dir,
                 f"signal_train_preproc_{hashlib.md5(f'{data_path}_{os.path.basename(model_path)}'.encode()).hexdigest()}.parquet"
             )
-            model_config = "/home/labmember/Desktop/workspace_GIT/DeepEpiX/src/static/model_config.json"
+            model_config = f"{STATIC_DIR}/model_config.json"
+
+            print(f"Model config : {model_config}")
             mne_info_path, df = pu.preprocess_same_as_training(model_config, model_path, data_path, channels_dict, signal_cache_path)
         
         # Otherwise, execute model
