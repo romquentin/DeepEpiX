@@ -47,7 +47,7 @@ def register_display_bad_channels_to_save_checkboxes():
             for bad_chan in bad_channels
         ]
         value = [f"{bad_chan}" for bad_chan in bad_channels]
-        return options, value  # Set all annotations as default selected
+        return options, value
 
 
 def register_save_modifications():
@@ -63,7 +63,29 @@ def register_save_modifications():
     def _save_modifications(
         n_clicks, data_path, format, annotations_to_save, annotations, bad_channels
     ):
-        """Modify name of old markerfile and create new markerfile."""
+        """
+        Export modified annotations and bad channel metadata to disk.
+
+        Parameters
+        ----------
+        n_clicks : int
+            Trigger count from the save button.
+        data_path : str
+            Source path of the M/EEG data.
+        save_format : str
+            Desired export format ("original" or "fif").
+        annotations_to_save : list of str
+            List of annotation descriptions selected for export.
+        annotations : list of dict
+            The full annotation data from the store.
+        bad_channels : list of str
+            List of channel names marked as bad.
+
+        Returns
+        -------
+        str
+            Status message to be displayed in the UI.
+        """
         if n_clicks > 0:
             if not data_path:
                 return "⚠️ Error: No folder path selected."

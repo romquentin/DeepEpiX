@@ -38,7 +38,7 @@ RUN OS=$(uname) && ARCH=$(uname -m) && echo "OS: $OS, ARCH: $ARCH" && \
     else \
     echo "Unknown architecture: $ARCH. Cannot install CPU-only TensorFlow..."; \
     fi
-
+    
 # Copy the rest of the application
 COPY ./ /DeepEpiX/
 

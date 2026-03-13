@@ -4,6 +4,10 @@ import pickle
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 import mne
+import json
+import pandas as pd
+
+from typing import Tuple
 
 
 # read and write pickle files
@@ -18,7 +22,7 @@ def load_obj(name, path):
 
 
 # center scale each window using all window mean and std
-def standardize(X, mean=False, std=False):
+def standardize(X, mean=None, std=None):
     if not mean:
         mean = np.mean(X, axis=(1, 2))
     if not std:
@@ -71,60 +75,137 @@ def read_raw(data_path, preload, verbose, bad_channels=None):
 
     return raw
 
+def load_raw_from_parquet(parquet_path: str, json_path: str) -> Tuple[mne.io.RawArray, dict]:
+    """
+    Reconstruct an MNE RawArray using .parquet & .jsons files.
 
-# tentative function to interpolate missing channels using mne
+    Parquet file must contain channels as columns & samples as rows.
+    Json file must contain : sfreq, ch_names, ch_types & bads.
+
+    Parameters
+    ----------
+    parquet_path: str
+        Path to the .parquet file containing signal values.
+    json_path: str
+        Path to the .json file containing mne metadata.
+
+    Returns
+    -------
+    mne.io.RawArray
+        MNE instance of the reconstructed signal.
+    metadata: dict
+        Dictionnary containing signal metadatas.
+    """
+    df = pd.read_parquet(parquet_path)
+    data = df.values.T  # shape: (n_channels, n_times)
+
+    with open(str(json_path), "r") as f:
+        metadata = json.load(f)
+
+    ch_names = metadata["ch_names"]
+    channel_types_dict = metadata["channel_types"]
+    ch_types = [channel_types_dict[ch] for ch in ch_names]
+
+    info = mne.create_info(
+        ch_names=ch_names,
+        sfreq=metadata["sfreq"],
+        ch_types=ch_types, #type: ignore
+    )
+    info["bads"] = metadata.get("bads", [])
+
+    if "lowpass" in metadata:
+        dict.__setitem__(info, "lowpass", float(metadata["lowpass"]))
+    
+    if "highpass" in metadata:
+        dict.__setitem__(info, "highpass", float(metadata["highpass"]))
+
+    return mne.io.RawArray(data, info, verbose=False), metadata
+
+
 def interpolate_missing_channels(raw, good_channels):
+    """
+    Interpolate missing M/EEG channels from a known good channel layout.
+
+    Parameters
+    ----------
+    raw : mne.io.RawArray
+        The raw M/EEG data object with potentially missing channels.
+    good_channels : dict
+        Dictionary mapping channel base names to their 3D sensor locations
+        (as numpy arrays), representing the full expected channel layout.
+
+    Returns
+    -------
+    mne.io.RawArray
+        Raw object with missing channels interpolated and reordered
+        to match the full good_channels layout.
+    """
 
     def get_base(name):
         return name.split()[0].split("-")[0].strip()
 
     raw.rename_channels(get_base)
-    existing_channels = raw.info["ch_names"]
-    good_basenames = [name for name in good_channels.keys()]
+    existing_channels = set(raw.info["ch_names"])
+    good_basenames = list(good_channels.keys())
 
     # Figure out missing channels by base name
-    missing_basenames = list(set(good_basenames) - set(existing_channels))
+    missing_basenames = [name for name in good_basenames if name not in existing_channels]
+    extra_channels = [ch for ch in raw.info["ch_names"] if ch not in good_channels]
     new_raw = raw.copy()
 
-    # Create fake channels for missing ones
-    for miss in missing_basenames:
+    if extra_channels:
+        new_raw.drop_channels(extra_channels)
 
-        to_copy = raw.info["ch_names"][71]  # just an existing template channel
-        new_channel = raw.copy().pick([to_copy])
-        new_channel.rename_channels({to_copy: miss})
-        new_raw.add_channels([new_channel], force_update_info=True)
+    if missing_basenames:
+        valid_channels = [ch for ch in new_raw.info["ch_names"] if ch not in missing_basenames]
+        if not valid_channels:
+            raise ValueError("Can't find any valid channel to serve as template")
+        template_channel = valid_channels[0]
 
-        # specifies the location of the missing channel
-        for i in range(len(new_raw.info["chs"])):
-            if new_raw.info["chs"][i]["ch_name"] == miss:
-                new_raw.info["chs"][i]["loc"] = good_channels[miss]
+        for miss in missing_basenames:
+            new_channel = new_raw.copy().pick([template_channel])
+            new_channel.rename_channels({template_channel: miss})
 
-    # Reorder based on full good_channels list (with no suffixes now)
-    new_raw.reorder_channels(good_basenames)
-    new_raw.info["bads"] = missing_basenames
+            new_channel._data[:] = 0.0
 
-    # Interpolate
-    new_raw.interpolate_bads(origin=(0, 0, 0.04), reset_bads=True)
+            new_raw.add_channels([new_channel], force_update_info=True)
+
+        for ch in new_raw.info["chs"]:
+            if ch["ch_name"] in good_channels:
+                ch["loc"] = good_channels[ch["ch_name"]]
+
+        new_raw.reorder_channels(good_basenames)
+        new_raw.info["bads"] = missing_basenames
+        new_raw.interpolate_bads(origin=(0, 0, 0.04), reset_bads=True)
+
+    else:
+        new_raw.reorder_channels(good_basenames)
+
     return new_raw
 
 
 def fill_missing_channels(raw, target_channel_count):
     """
-    Fills missing channels by duplicating existing channels at regular intervals
-    and inserting them next to the originals they are copied from.
+    Fill missing channels by duplicating existing ones at regular intervals.
 
-    Parameters:
-    - raw (mne.io.Raw): The original raw object.
-    - target_channel_count (int): Desired total number of channels.
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        The original raw object.
+    target_channel_count : int
+        Desired total number of channels.
 
-    Returns:
-    - numpy.ndarray: Data with inserted channels (shape: target_channel_count, n_times).
+    Returns
+    -------
+    numpy.ndarray
+        Data array with inserted channels, shape (target_channel_count, n_times).
+        Returns original data unchanged if current count >= target.
     """
     data = raw.get_data()
     current_count = data.shape[0]
 
     if current_count >= target_channel_count:
-        return data  # Nothing to add
+        return data
 
     n_missing = target_channel_count - current_count
 
@@ -138,8 +219,7 @@ def fill_missing_channels(raw, target_channel_count):
         if i in duplicate_indices:
             new_data.append(data[i])  # Insert duplicate right after
 
-    full_data = np.stack(new_data, axis=0)
-    return full_data
+    return np.stack(new_data, axis=0)
 
 
 def compute_gfp(window):
@@ -152,7 +232,7 @@ def find_peak_gfp(gfp, times, smoothing_sigma=2, percentile=90):
     gfp_smooth = gaussian_filter1d(gfp, sigma=smoothing_sigma)
 
     # Thresholding: Find first peak above percentile threshold
-    threshold = np.percentile(gfp_smooth, percentile)
+    threshold = np.percentile(gfp_smooth, percentile)    #type: ignore
     peak_indices = np.where(gfp_smooth >= threshold)[0]
 
     if len(peak_indices) > 0:

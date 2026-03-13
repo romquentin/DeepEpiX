@@ -31,6 +31,33 @@ def register_display_topomap_on_click():
         channel_store,
         modality,
     ):
+        """
+        Generate and display a sensor topomap based on a clicked time point.
+
+        Parameters
+        ----------
+        click_info : dict
+            Data from the Plotly click event containing coordinates (x is time).
+        data_path : str
+            Path to the raw M/EEG data file.
+        is_button_active : bool
+            State of the topomap toggle button (False usually indicates 'active' outline).
+        page_selection : int or str
+            Index of the current time chunk being viewed.
+        chunk_limits : list of tuples
+            Start and end times for each data chunk.
+        freq_data : dict
+            Preprocessing parameters (resample_freq, filters).
+        channel_store : dict
+            Mapping of channel types and names, including 'bad' channels.
+        modality : str
+            The data modality (e.g., 'meg', 'eeg').
+
+        Returns
+        -------
+        tuple
+            (Time label string, html.Img component for topomap, dash.no_update).
+        """
         if button is False:
             try:
                 start_time = time.time()  # Start timing
@@ -43,7 +70,7 @@ def register_display_topomap_on_click():
                 load_start_time = time.time()
                 raw = dpu.read_raw(data_path, preload=False, verbose=False)
                 time_range = chunk_limits[int(page_selection)]
-                raw_ddf = pu.get_preprocessed_dataframe_dask(
+                raw_ddf, _ = pu.get_preprocessed_dataframe_dask(
                     data_path, freq_data, time_range[0], time_range[1], channel_store
                 )
                 print(
@@ -87,11 +114,12 @@ def register_display_topomap_on_click():
 
 def register_activate_deactivate_topomap_button():
     @callback(
-        Output("plot-topomap-button", "outline"),
+        [Output("plot-topomap-button", "outline"),
+         Output("plot-topomap-button", "children")],
         Input("plot-topomap-button", "n_clicks"),
         prevent_initial_call=True,
     )
     def _activate_deactivate_topomap_button(n_clicks):
         if n_clicks % 2 == 0:
-            return True
-        return False
+            return True, "Activate"
+        return False, "Deactivate"

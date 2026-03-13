@@ -213,7 +213,7 @@ model:
     input_shape:
       - 20
       - 275
-      - 40
+      - 30
     linear_attention: false
     log_dir: ""
     mode: raw
@@ -221,7 +221,7 @@ model:
     overlap: 0.5
     selection_temperature: 1.0
     sequential_processing: false
-    sfreq: 200.0
+    sfreq: 150.0
     token_size: 20
     use_cls_token: true
     use_max_pool: false

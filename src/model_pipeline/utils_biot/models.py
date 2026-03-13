@@ -476,7 +476,6 @@ class BIOTEncoder(nn.Module):
             channel_mask = torch.ones((batch_size, n_channels), dtype=torch.bool, device=x.device)
         missing_mask = ~channel_mask
         channel_embs = torch.where(missing_mask.unsqueeze(-1), self.missing_channel_embedding.expand(batch_size, n_channels, -1), channel_embs)
-        
         # Unknown channel augmentation during training
         if self.training and unk_augment > 0.0:
             valid_mask = channel_mask

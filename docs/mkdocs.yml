@@ -32,7 +32,7 @@ nav:
       - Visualize Preprocessed Signal: user/raw-viz.md
       - Analyze Preprocessed Signal: user/raw-analyze.md
       - Save Modifications: user/save.md
-      - Visualize ICA: user/ica-viz.md
+      - Visualize & Exclude ICA components: user/ica-viz.md
       - Add your own model: user/new-model.md
   - Developer Guide:
       - Setup & run: dev/setup.md

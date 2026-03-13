@@ -19,9 +19,11 @@ from model_pipeline.sliding_windows_utils import (
     get_win_data_signal,
 )
 from model_pipeline.utils import (
+    read_raw,
     load_obj,
     compute_gfp,
     find_peak_gfp,
+    load_raw_from_parquet,
 )
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -29,10 +31,10 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # === Helper functions specific to your model ===
 def prepare_data(
-    subject,
+    signal_cache_path,
+    mne_info_cache_path,
     output_path,
     channel_groups,
-    freq,
     sfreq,
     window_size,
     spike_spacing_from_borders,
@@ -63,15 +65,21 @@ def prepare_data(
         "A1",
         "A2",
     ]
+
+    raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+    sfreq_orig = metadata['sfreq']
+
+    if sfreq_orig != sfreq:
+        raw.resample(sfreq)
+
     save_data_matrices(
-        subject,
+        raw,          #type: ignore
         output_path,
         channel_groups,
         good_channels,
         "eeg",
-        (freq[0], freq[1]),
-        sfreq,
     )
+
     total_nb_windows = create_windows(
         output_path, window_size, False, sfreq, spike_spacing_from_borders
     )
@@ -86,8 +94,7 @@ def load_model(model_name):
 
 
 def predict_windows(
-    model, X_test_ids, model_name, output_path, sfreq, window_size, dim
-):
+    model, X_test_ids, model_name, output_path, dim):
     """Predict probabilities for all windows using the given model."""
     file_path = os.path.join(output_path, "data_raw_windows_bi")
     with open(file_path, "rb") as f:
@@ -96,9 +103,7 @@ def predict_windows(
         device = "/GPU:0" if tf.config.list_physical_devices("GPU") else "/CPU:0"
         with tf.device(device):
             for cur_win in X_test_ids:
-                sample = get_win_data_signal(
-                    f, cur_win, (int(sfreq * window_size), dim[1], 1)
-                )
+                sample = get_win_data_signal(f, cur_win, dim)
 
                 if "features" in model_name:
                     sample = get_win_data_feat(sample)
@@ -145,7 +150,7 @@ def get_onsets(output_path, sfreq):
     return onsets
 
 
-def save_predictions(output_path, model_name, onsets, y_pred_probas):
+def save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas):
     """Save predictions into a CSV file compatible with MNE annotations."""
     df = pd.DataFrame(
         {
@@ -154,9 +159,14 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
             "probas": y_pred_probas,
         }
     )
-    output_file = os.path.join(
-        output_path, f"{os.path.basename(model_name)}_predictions.csv"
-    )
+    if signal_name is not None:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_{signal_name}_predictions.csv"
+        )
+    else:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_predictions.csv"
+        )
     df.to_csv(output_file, index=False)
     return output_file
 
@@ -164,29 +174,28 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
 # === Main function ===
 def test_model(
     model_name,
-    model_type,
-    subject,
     output_path,
-    threshold=0.5,
+    signal_cache_path,
+    mne_info_cache_path,
     adjust_onset=True,
     channel_groups=None,
+    signal_name=None,
 ):
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
 
     # Params
     window_size = 0.2
-    sfreq = 150
-    freq = [1, 70]
-    dim = (int(sfreq * window_size), 23, 1)
+    sfreq_model = 150
+    dim = (int(sfreq_model * window_size), 275, 1)
     spike_spacing_from_borders = 0.03
 
     # 1. Data preparation
     X_test_ids = prepare_data(
-        subject,
+        signal_cache_path,
+        mne_info_cache_path,
         output_path,
         channel_groups,
-        freq,
-        sfreq,
+        sfreq_model,
         window_size,
         spike_spacing_from_borders,
     )
@@ -196,8 +205,7 @@ def test_model(
 
     # 3. Predictions
     y_pred_probas = predict_windows(
-        model, X_test_ids, model_name, output_path, sfreq, window_size, dim
-    )
+        model, X_test_ids, model_name, output_path, dim)
 
     # 4. Cleanup model & GPU memory
     del model
@@ -206,9 +214,9 @@ def test_model(
 
     # 5. Adjust onset times
     if adjust_onset:
-        onsets = get_adjusted_onsets(X_test_ids, output_path, dim, sfreq)
+        onsets = get_adjusted_onsets(X_test_ids, output_path, dim, sfreq_model)
     else:
-        onsets = get_onsets(output_path, sfreq)
+        onsets = get_onsets(output_path, sfreq_model)
 
     # 6. Save predictions
-    return save_predictions(output_path, model_name, onsets, y_pred_probas)
+    return save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas)

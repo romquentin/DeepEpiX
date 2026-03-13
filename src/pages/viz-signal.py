@@ -1,6 +1,7 @@
 import dash
-from dash import html, dcc, Input, Output, clientside_callback
+from dash import html, dcc, Input, Output, clientside_callback, callback
 from dash_extensions import Keyboard
+import os
 
 # Layout imports
 import layout.graph_layout as gl
@@ -58,6 +59,7 @@ from callbacks.spike_callbacks import (
 
 # --- History ---
 from callbacks.history_callbacks import (
+    register_clean_ica_history,
     register_clean_annotation_history,
     register_update_annotation_history,
 )
@@ -71,9 +73,11 @@ from callbacks.save_callbacks import (
 
 # --- Predict ---
 from callbacks.predict_callbacks import (
+    register_fill_signal_versions_predict,
     register_execute_predict_script,
     register_store_display_prediction,
     register_update_selected_model,
+    register_smoothgrad_threshold,
 )
 
 dash.register_page(__name__, name="Data Viz & Analyze", path="/viz/raw-signal")
@@ -353,12 +357,15 @@ register_move_to_next_annotation(
 
 # --- History ---
 register_update_annotation_history()
+register_clean_ica_history()
 register_clean_annotation_history()
 
 # --- Predict ---
+register_fill_signal_versions_predict()
 register_execute_predict_script()
 register_store_display_prediction()
 register_update_selected_model()
+register_smoothgrad_threshold()
 
 # --- Save ---
 register_display_bad_channels_to_save_checkboxes()

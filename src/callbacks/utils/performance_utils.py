@@ -2,6 +2,9 @@ import numpy as np
 
 
 def compute_matches(model_onsets, gt_onsets, delta):
+    model_onsets = list(model_onsets)
+    gt_onsets = list(gt_onsets)
+
     true_positive = 0
     false_positive = 0
     false_negative = 0

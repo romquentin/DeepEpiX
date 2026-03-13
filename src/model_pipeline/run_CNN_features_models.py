@@ -9,8 +9,8 @@ import gc
 import pickle
 import numpy as np
 import pandas as pd
-import tensorflow as tf
-from tensorflow import keras
+import tensorflow as tf # type: ignore
+from tensorflow import keras # type: ignore
 from model_pipeline.features_utils import get_win_data_feat
 from model_pipeline.sliding_windows_utils import (
     save_data_matrices,
@@ -22,19 +22,18 @@ from model_pipeline.utils import (
     load_obj,
     compute_gfp,
     find_peak_gfp,
+    load_raw_from_parquet,
 )
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 # === Helper functions specific to models ===
-
-
 def prepare_data(
-    subject,
+    signal_cache_path,
+    mne_info_cache_path,
     output_path,
     channel_groups,
-    freq,
     sfreq,
     window_size,
     spike_spacing_from_borders,
@@ -42,18 +41,25 @@ def prepare_data(
     """Prepare data matrices, create windows, and generate test IDs."""
     with open("good_channels_dict.pkl", "rb") as f:
         good_channels = pickle.load(f)
+
+    raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
+    sfreq_orig = metadata['sfreq']
+
+    if sfreq_orig != sfreq:
+        raw.resample(sfreq)
+
     save_data_matrices(
-        subject,
+        raw,             #type: ignore
         output_path,
         channel_groups,
         good_channels,
         "mag",
-        (freq[0], freq[1]),
-        sfreq,
     )
+
     total_nb_windows = create_windows(
         output_path, window_size, False, sfreq, spike_spacing_from_borders
     )
+
     return generate_database(total_nb_windows)
 
 
@@ -61,6 +67,7 @@ def load_model(model_name):
     """Load and compile a Keras model."""
     model = keras.models.load_model(model_name, compile=False)
     model.compile()
+    print(model.summary())
     return model
 
 
@@ -120,7 +127,7 @@ def get_onsets(output_path, sfreq):
     return onsets
 
 
-def save_predictions(output_path, model_name, onsets, y_pred_probas):
+def save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas):
     """Save predictions into a CSV file compatible with MNE annotations."""
     df = pd.DataFrame(
         {
@@ -129,9 +136,14 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
             "probas": y_pred_probas,
         }
     )
-    output_file = os.path.join(
-        output_path, f"{os.path.basename(model_name)}_predictions.csv"
-    )
+    if signal_name is not None:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_{signal_name}_predictions.csv"
+        )
+    else:
+        output_file = os.path.join(
+            output_path, f"{os.path.basename(model_name)}_predictions.csv"
+        )
     df.to_csv(output_file, index=False)
     return output_file
 
@@ -139,29 +151,27 @@ def save_predictions(output_path, model_name, onsets, y_pred_probas):
 # === Main function ===
 def test_model(
     model_name,
-    model_type,
-    subject,
     output_path,
-    threshold=0.5,
+    signal_cache_path,
+    mne_info_cache_path,
     adjust_onset=True,
     channel_groups=None,
+    signal_name=None,
 ):
     """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
-
     # Params
     window_size = 0.2
-    sfreq = 150
-    freq = [1, 70]
-    dim = (int(sfreq * window_size), 275, 1)
+    sfreq_model = 150
+    dim = (int(sfreq_model * window_size), 275, 1)
     spike_spacing_from_borders = 0.03
 
     # 1. Data preparation
     X_test_ids = prepare_data(
-        subject,
+        signal_cache_path,
+        mne_info_cache_path,
         output_path,
         channel_groups,
-        freq,
-        sfreq,
+        sfreq_model,
         window_size,
         spike_spacing_from_borders,
     )
@@ -179,9 +189,9 @@ def test_model(
 
     # 5. Adjust onset times
     if adjust_onset:
-        onsets = get_adjusted_onsets(X_test_ids, output_path, dim, sfreq)
+        onsets = get_adjusted_onsets(X_test_ids, output_path, dim, sfreq_model)
     else:
-        onsets = get_onsets(output_path, sfreq)
+        onsets = get_onsets(output_path, sfreq_model)
 
     # 6. Save predictions
-    return save_predictions(output_path, model_name, onsets, y_pred_probas)
+    return save_predictions(output_path, signal_name, model_name, onsets, y_pred_probas)

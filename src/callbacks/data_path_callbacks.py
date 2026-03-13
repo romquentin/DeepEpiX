@@ -1,6 +1,7 @@
-# Dash & Plotly
+# Dash & Plotly & other librairies
 import dash
 from dash import Input, Output, State, callback
+from pathlib import Path
 
 # Local Imports
 from callbacks.utils import path_utils as dpu
@@ -10,7 +11,6 @@ from layout.config_layout import FLEXDIRECTION
 def register_update_dropdown():
     @callback(
         Output("data-path-dropdown", "options"),
-        # Output("data-path-dropdown", "value"),
         Output("data-path-warning", "children"),  # Optional: warning display
         Input("open-folder-button", "n_clicks"),
         State("data-path-dropdown", "options"),
@@ -32,7 +32,7 @@ def register_update_dropdown():
                         "Selected folder is not a valid M/EEG folder (.ds or .fif or 4D).",
                     )
 
-            dropdown = dpu.get_data_path_options(data_path)
+            dropdown = dpu.get_data_path_options(Path(data_path))
             return dropdown, ""
 
         return dash.no_update, dash.no_update

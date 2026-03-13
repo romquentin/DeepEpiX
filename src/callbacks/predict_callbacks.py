@@ -6,10 +6,16 @@ import pandas as pd
 import dash
 from dash import Input, Output, State, html, callback
 import dash_bootstrap_components as dbc
+import json
+import hashlib
 
 import config
 from callbacks.utils import annotation_utils as au
 from callbacks.utils import history_utils as hu
+from callbacks.utils import preprocessing_utils as pu
+from callbacks.utils import predict_utils as pru
+
+from config import STATIC_DIR
 
 
 def register_update_selected_model():
@@ -33,6 +39,47 @@ def register_update_selected_model():
 
         return environment
 
+def register_fill_signal_versions_predict():
+    @callback(
+        Output("signal-version-predict", "options"),
+        Input("history-store", "data"),
+        Input("url", "pathname"),
+        prevent_initial_call=False,
+    )
+    def _fill_signal_versions_predict(history_data, url):
+        """
+        This function populate signal version options for prediction.
+
+        Parameters
+        ----------
+        history_data : dict or None
+            The data dictionary from the 'history-store' component. 
+            Expected to have structure: 
+            `metadata -> ica_results -> {path: {excluded_components: [...]}}`.
+        url : str
+            The current page path from the 'url' component.
+
+        Returns
+        -------
+        list of dict
+            A list of option dictionaries for the dcc.Dropdown component.
+        """
+        options = [{"label": "Filtered signal", "value": "__raw__"}]
+        ica_results = (
+            (history_data or {})
+            .get("metadata", {})
+            .get("ica_results", {})
+        )
+        for ica_path, ica_meta in ica_results.items():
+            excluded = ica_meta.get("excluded_components", [])
+            if not excluded:
+                continue
+            name = os.path.basename(ica_path).removesuffix("-ica.fif")
+            options.append({
+                "label": f"ICA · {name}_{excluded}",
+                "value": ica_path,
+            })
+        return options 
 
 def register_execute_predict_script():
     @callback(
@@ -43,133 +90,233 @@ def register_execute_predict_script():
         Output("sensitivity-analysis-store", "data", allow_duplicate=True),
         Input("run-prediction-button", "n_clicks"),
         State("data-path-store", "data"),
+        State("frequency-store", "data"),
+        State("channel-store", "data"),
+        State("chunk-limits-store", "data"),
+        State("history-store", "data"),
+        State("signal-version-predict", "value"),
         State("model-dropdown", "value"),
         State("venv", "value"),
-        State("initial-threshold", "value"),
+        State("smoothgrad-threshold", "value"),
         State("sensitivity-analysis", "value"),
         State("adjust-onset", "value"),
         State("model-probabilities-store", "data"),
         State("sensitivity-analysis-store", "data"),
         State("channel-store", "data"),
+        State("predict-preprocess-choice", "value"),
         prevent_initial_call=True,
     )
     def _execute_predict_script(
         n_clicks,
         data_path,
+        freq_data,
+        channels_dict,
+        chunk_limits,
+        history_data,
+        signal_version,
         model_path,
         venv,
-        threshold,
+        smoothgrad_threshold,
         sensitivity_analysis,
         adjust_onset,
         model_probabilities_store,
         sensitivity_analysis_store,
         channel_store,
+        preprocessing_option,
     ):
+        """
+        Execute model inference and sensitivity analysis via external subprocesses.
+
+        This callback reconstructs the signal of interest by aggregating the packets 
+        (Parquet files) associated with the previously used time windows in the app 
+        or reuses an existing global cache. It then retrieves the MNE metadata (JSON format)
+        before launching the prediction and SmoothGrad scripts in the appropriate virtual environment.
+
+        Parameters
+        ----------
+        n_clicks : int
+            The number of times the 'run-prediction-button' has been clicked.
+        data_path : str
+            File system path to the input dataset or subject directory.
+        freq_data : dict
+            Frequency-related parameters for signal preprocessing.
+        channels_dict : dict
+            Mapping of channel names and indices to be used for extraction.
+        chunk_limits : list of int
+            Start and end indices for data slicing.
+        history_data : dict
+            Application session history containing metadata.
+        signal_version : str
+            The specific ICA version to use or '__raw__' for 
+            filtered data.
+        model_path : str
+            Path to the selected model file (e.g., .h5 or .pth).
+        venv : str
+            The selected environment type (e.g., "TensorFlow" or "PyTorch").
+        smoothgrad_threshold : float
+            Indicated the minimum model's probability to compute SmoothGrad on the window
+        sensitivity_analysis : bool
+            Whether to execute the SmoothGrad attribution script.
+        adjust_onset : bool
+            Whether to apply post-processing logic to adjust predicted onset 
+            times.
+        model_probabilities_store : list
+            Cached paths to existing prediction CSV files.
+        sensitivity_analysis_store : list
+            Cached paths to existing SmoothGrad pickle files.
+        channel_store : str
+            Serialized string representation of the selected channels.
+        preprocessing_option : str
+            Version of the signal to use:
+                - 'custom' will use the signal preprocessed during the session;
+                - 'same_as_training' will preprocess the signal from scratch using model's specific configuration.
+        
+        Returns
+        -------
+        prediction_status : str or bool
+            Feedback message for the user, or True if the process completed 
+            successfully.
+        n_clicks : int
+            Resets the button click count (returns 0 or dash.no_update).
+        display_style : dict
+            CSS style dictionary (e.g., {'display': 'block'}) to show/hide 
+            result containers.
+        model_probabilities_store : list
+            Updated list containing the path to the new prediction CSV.
+        sensitivity_analysis_store : list
+            Updated list containing the path to the new SmoothGrad .pkl file.
+
+        Notes
+        -----
+        The function follows a strict execution pipeline:
+        1. **Cache Check**: If a prediction with the same model already exists 
+           in the store, it returns early.
+        2. **Signal Management**: The function checks for the existence of a global cache 
+           via an MD5 hash (including data_path, freq_data, and excluded ICA components).
+           If absent, it recreates the signal from the preprocessed time windows 
+           and saves it in Parquet format.
+        3. **MNE Metadata**: Retrieves signal structure information 
+           from a JSON file (`_mne_meta.json`).
+        4. **Inference**: Runs `main.py` using the `subprocess` module in the 
+           environment specified by `venv`.
+        5. **Attribution**: If `sensitivity_analysis` is True, runs 
+           `run_smoothgrad.py`.
+        """
         if not n_clicks or n_clicks == 0:
             return None, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        # Validation: Check if all required fields are filled
         if not data_path:
-            error_message = "⚠️ Please choose a subject to display on Home page."
-            return (
-                error_message,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-            )
+            return "⚠️ Please choose a subject to display on Home page.", dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-        missing_fields = []
-        if not model_path:
-            missing_fields.append("Model")
-        if not venv:
-            missing_fields.append("Environment")
-        if threshold is None:
-            missing_fields.append("Threshold")
+        missing_fields = [f for f, v in [("Model", model_path), ("Environment", venv)] if not v]
+
         if missing_fields:
-            error_message = (
-                f"⚠️ Please fill in all required fields: {', '.join(missing_fields)}"
-            )
-            return (
-                error_message,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-            )
+            return f"⚠️ Please fill in all required fields: {', '.join(missing_fields)}", dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        excluded_ica_comp = None
+        if signal_version != "__raw__":
+            excluded_ica_comp = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
+
+        signal_name = "raw" if signal_version == "__raw__" else os.path.basename(signal_version).split("-ica.fif")[0]
 
         cache_dir = config.CACHE_DIR
-        predictions_csv_path = (
-            cache_dir / f"{os.path.basename(model_path)}_predictions.csv"
-        )
-        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_smoothGrad.pkl"
+        signal_name_with_ica = f"{signal_name}_{excluded_ica_comp}" if excluded_ica_comp is not None else signal_name
+        signal_name_with_preprocess = f"{signal_name_with_ica}_{preprocessing_option}"
 
-        # If already exists, skip execution
-        if (
-            predictions_csv_path.exists()
-            and str(predictions_csv_path) in model_probabilities_store
-        ):
-            if (
-                sensitivity_analysis
-                and smoothgrad_path.exists()
-                and str(smoothgrad_path) in model_probabilities_store
-            ):
-                return (
-                    "✅ Reusing existing model predictions",
-                    0,
-                    {"display": "block"},
-                    dash.no_update,
-                    dash.no_update,
-                )
-            elif not sensitivity_analysis:
-                return (
-                    "✅ Reusing existing model predictions",
-                    0,
-                    {"display": "block"},
-                    dash.no_update,
-                    dash.no_update,
-                )
+        predictions_csv_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_preprocess}_predictions.csv"
+        smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_preprocess}_smoothGrad.pkl"
 
+        need_predictions = not predictions_csv_path.exists()
+        need_smoothgrad = sensitivity_analysis and not smoothgrad_path.exists()
+
+        if need_smoothgrad and os.path.basename(model_path) != "model_CNN.keras":
+            return "⚠️ SmoothGrad is only available for model_CNN model", dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+        if not need_predictions and not need_smoothgrad:
+            return (
+                "✅ Reusing existing model predictions",
+                0,
+                {"display": "block"},
+                [str(predictions_csv_path)],
+                [str(smoothgrad_path)] if smoothgrad_path.exists() else dash.no_update,
+            )
+        mne_info_path = "None"
+        if preprocessing_option =="custom":
+            meta = (history_data or {}).get("metadata", {})
+            ica_results = meta.get("ica_results", {})
+            excluded_ica = (
+                ica_results[signal_version].get("excluded_components", [])
+                if signal_version and signal_version != "__raw__" and signal_version in ica_results
+                else None
+            )
+
+            signal_cache_path = os.path.join(
+                cache_dir, 
+                f"signal_{hashlib.md5(f'{data_path}_{json.dumps(freq_data, sort_keys=True)}_{sorted(excluded_ica) if excluded_ica else []}_{preprocessing_option}'.encode()).hexdigest()}.parquet"
+            )
+            mne_info_path = pu.get_cache_filename(data_path, freq_data).replace(".parquet", "_mne_meta.json")
+
+            if not os.path.exists(signal_cache_path):
+                signal = pru.extract_preprocess_signal(
+                    data_path, freq_data, channels_dict, chunk_limits, excluded_ica
+                )
+                print(f"Variance : {signal.var().mean()} | Shape : {signal.shape}")
+                signal.to_parquet(signal_cache_path)     
+            else:
+                print(f"✅ Signal already in cache — skip extraction ({signal_cache_path})")
+
+        else:
+            print("🔄 Applying training preprocessing to signal...")
+            signal_cache_path = os.path.join(
+                cache_dir,
+                f"signal_train_preproc_{hashlib.md5(f'{data_path}_{os.path.basename(model_path)}'.encode()).hexdigest()}.parquet"
+            )
+            model_config = f"{STATIC_DIR}/model_config.json"
+
+            print(f"Model config : {model_config}")
+            mne_info_path, df = pu.preprocess_same_as_training(model_config, model_path, data_path, channels_dict, signal_cache_path)
+        
         # Otherwise, execute model
         if "TensorFlow" in venv:
             ACTIVATE_ENV = str(config.TENSORFLOW_ENV / "bin/python")
         elif "PyTorch" in venv:
             ACTIVATE_ENV = str(config.TORCH_ENV / "bin/python")
 
-        command = [
-            ACTIVATE_ENV,
-            str(config.MODEL_PIPELINE_DIR / "main.py"),
-            str(model_path),
-            str(venv),
-            str(data_path),
-            str(cache_dir),
-            str(threshold),  # Ensure threshold is passed as a string
-            str(adjust_onset),
-            str(channel_store),
-        ]
-
-        working_dir = str(config.APP_ROOT)
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(working_dir)
+        env["PYTHONPATH"] = str(config.APP_ROOT)
 
-        try:
-            start_time = time.time()
-            subprocess.run(
-                command, env=env, text=True, cwd=str(config.MODEL_PIPELINE_DIR)
-            )  # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            model_probabilities_store = [str(predictions_csv_path)]
-            print(f"Model testing executed in {time.time()-start_time:.2f} seconds")
+        if need_predictions:
+            command = [
+                ACTIVATE_ENV,
+                str(config.MODEL_PIPELINE_DIR / "main.py"),
+                str(model_path),
+                str(venv),
+                str(data_path),
+                str(cache_dir),
+                str(adjust_onset),
+                str(channel_store),
+                str(signal_cache_path),
+                str(mne_info_path),
+                str(signal_name_with_preprocess),
+                str(preprocessing_option),
+            ]
 
-        except Exception as e:
-            return (
-                f"⚠️ Error running model: {e}",
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-                dash.no_update,
-            )
+            try:
+                start_time = time.time()
+                subprocess.run(
+                    command, env=env, text=True, cwd=str(config.MODEL_PIPELINE_DIR)
+                )  # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"Model testing executed in {time.time()-start_time:.2f} seconds")
 
-        if sensitivity_analysis:
+            except Exception as e:
+                return f"⚠️ Error running model: {e}", dash.no_update, dash.no_update, dash.no_update, dash.no_update,
+    
+        if not predictions_csv_path.exists():
+                return "⚠️ Error running prediction.", 0, {"display": "block"}, model_probabilities_store, dash.no_update
+    
+        model_probabilities_store = [str(predictions_csv_path)]
+
+        if need_smoothgrad:
             command = [
                 ACTIVATE_ENV,
                 str(config.MODEL_PIPELINE_DIR / "run_smoothgrad.py"),
@@ -177,52 +324,31 @@ def register_execute_predict_script():
                 str(venv),
                 str(cache_dir),
                 str(predictions_csv_path),
-                str(threshold),  # Ensure threshold is passed as a string
+                str(smoothgrad_threshold),
+                str(mne_info_path),
+                str(signal_name_with_preprocess),
             ]
 
             try:
-                # Start timing for the second subprocess
                 start_time = time.time()
                 subprocess.run(
                     command, env=env, text=True, cwd=str(config.MODEL_PIPELINE_DIR)
-                )  # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                )
                 print(f"Smoothgrad executed in {time.time()-start_time:.2f} seconds")
 
             except Exception as e:
-                return (
-                    f"⚠️ Error running smoothgrad: {e}",
-                    0,
-                    {"display": "block"},
-                    model_probabilities_store,
-                    dash.no_update,
-                )
+                return f"⚠️ Error running smoothgrad: {e}", 0, {"display": "block"}, model_probabilities_store, dash.no_update
 
-            sensitivity_analysis_store = [str(smoothgrad_path)]
             if not smoothgrad_path.exists():
-                return (
-                    "⚠️ Error running smoothgrad.",
-                    0,
-                    {"display": "block"},
-                    model_probabilities_store,
-                    dash.no_update,
-                )
-            return (
-                True,
-                0,
-                {"display": "block"},
-                model_probabilities_store,
-                sensitivity_analysis_store,
-            )
+                return "⚠️ Error running smoothgrad.", 0, {"display": "block"}, model_probabilities_store, dash.no_update
 
-        if not predictions_csv_path.exists():
-            return (
-                "⚠️ Error running model.",
-                0,
-                {"display": "none"},
-                dash.no_update,
-                dash.no_update,
-            )
-        return True, 0, {"display": "block"}, model_probabilities_store, dash.no_update
+        return (
+            True,
+            0,
+            {"display": "block"},
+            model_probabilities_store,
+            sensitivity_analysis_store,
+        )
 
 
 @callback(
@@ -248,7 +374,7 @@ def update_prediction_table(style, threshold, prediction_csv_path):
             msg = html.P("No events found in this recording.")
             return msg, msg, msg
 
-        table = dbc.Table.from_dataframe(
+        table = dbc.Table.from_dataframe( #type: ignore
             df_filtered.copy(),
             striped=True,
             bordered=True,
@@ -270,14 +396,23 @@ def update_prediction_table(style, threshold, prediction_csv_path):
 @callback(
     Output("model-spike-name", "value"),
     Input("model-dropdown", "value"),
-    Input("adjusted-threshold", "value"),
+    Input("signal-version-predict", "value"),
+    Input("predict-preprocess-choice", "value"),
+    State("history-store", "data"),
     prevent_initial_call=True,
 )
-def update_spike_name(model_path, threshold_value):
-    if model_path is None or threshold_value is None:
+def update_spike_name(model_path, signal_version, preprocessing, history_data):
+    """ Update predicted spike annotation's name"""
+    if model_path is None:
         return dash.no_update
     model_name = os.path.splitext(os.path.basename(model_path))[0]
-    return f"{model_name}_{threshold_value}"
+    if signal_version == "__raw__":
+        signal_name = "raw"
+        return f"{model_name}_{signal_name}_{preprocessing}"
+    else:
+        signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
+        excluded = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
+        return f"{model_name}_{signal_name}_{excluded}_{preprocessing}"
 
 
 def register_store_display_prediction():
@@ -286,12 +421,14 @@ def register_store_display_prediction():
         Output("sidebar-tabs", "active_tab"),
         Output("store-display-div", "style", allow_duplicate=True),
         Output("history-store", "data"),
+        Output("model-csv-store", "data"),
         Input("store-display-button", "n_clicks"),
         State("annotation-store", "data"),
         State("model-probabilities-store", "data"),
         State("adjusted-threshold", "value"),
         State("model-spike-name", "value"),
         State("history-store", "data"),
+        State("model-csv-store", "data"),
         prevent_initial_call=True,
     )
     def store_display_prediction(
@@ -301,22 +438,40 @@ def register_store_display_prediction():
         threshold,
         spike_name,
         history_data,
+        model_csv_store,
     ):
         if not n_clicks or n_clicks == 0 or prediction_csv_path is None:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
+        if model_csv_store and spike_name in model_csv_store:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        
         if not annotation_data:
             annotation_data = []
 
         df = pd.read_csv(prediction_csv_path[0])
         prediction_df = df[df["probas"] > threshold]
+
         new_annotations = prediction_df[["onset", "duration"]].copy()
         new_annotations["description"] = spike_name  # Set spike name as description
-        new_annotations_dict = new_annotations.to_dict(orient="records")
+        new_annotations_dict = new_annotations.to_dict(orient="records") #type: ignore
+
         annotation_data.extend(new_annotations_dict)
+
+        model_csv_store[spike_name] = prediction_csv_path[0]
 
         action = f"Tested model with <{spike_name}> as the predicted event name.\n"
         history_data = hu.fill_history_data(history_data, "models", action)
 
         # Return updated annotations and switch tab
-        return annotation_data, "selection-tab", {"display": "none"}, history_data
+        return annotation_data, "selection-tab", {"display": "none"}, history_data, model_csv_store,
+
+def register_smoothgrad_threshold():
+    @callback(
+    Output("smoothgrad-threshold-div", "style"),
+    Input("sensitivity-analysis", "value"),
+    )
+    def toggle_smoothgrad_threshold(sensitivity_analysis):
+        if sensitivity_analysis:
+            return {"marginBottom": "20px", "display": "block"}
+        return {"marginBottom": "20px", "display": "none"}

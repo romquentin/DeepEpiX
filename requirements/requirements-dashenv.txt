@@ -186,6 +186,8 @@ python-dateutil==2.9.0.post0
     # via
     #   matplotlib
     #   pandas
+python-picard==0.8.1
+
 pytz==2024.2
     # via pandas
 pyyaml==6.0.2

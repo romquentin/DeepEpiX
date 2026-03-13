@@ -223,6 +223,12 @@ propcache==0.4.1
     #   yarl
 protobuf==6.33.0
     # via tensorboard
+pyarrow==20.0.0
+    # via
+    #   dask
+    #   dask-expr
+pyarrow-hotfix==0.7
+    # via dask
 pygments==2.19.2
     # via
     #   pytest

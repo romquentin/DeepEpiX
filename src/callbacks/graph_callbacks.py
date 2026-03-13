@@ -25,6 +25,8 @@ def register_update_graph_raw_signal():
         State("montage-store", "data"),
         State("channel-store", "data"),
         State("sensitivity-analysis-store", "data"),
+        State("history-store", "data"),
+        State("signal-version-radio", "value"),
         running=[(Output("update-button", "disabled"), True, False)],
         prevent_initial_call=True,
     )
@@ -42,6 +44,8 @@ def register_update_graph_raw_signal():
         montage_store,
         channel_store,
         sensitivity_analysis_store,
+        history_data,
+        signal_version,
     ):
         """Update M/EEG signal visualization based on time and channel selection."""
 
@@ -121,6 +125,13 @@ def register_update_graph_raw_signal():
                     filter = pickle.load(f)
             except KeyError:
                 return dash.no_update, "No color selected for graph traces.", ERROR
+            
+        meta = (history_data or {}).get("metadata", {})
+        ica_results = meta.get("ica_results", {})
+        if signal_version and signal_version != "__raw__" and signal_version in ica_results:
+            excluded_ica = ica_results[signal_version].get("excluded_components", [])
+        else:
+            excluded_ica = None
 
         try:
             fig, error, error_style = gu.generate_graph_time_channel(
@@ -133,6 +144,7 @@ def register_update_graph_raw_signal():
                 xaxis_range,
                 channel_store,
                 filter,
+                excluded_ica_components=excluded_ica,
             )
 
             return fig, error, error_style
@@ -159,6 +171,7 @@ def register_update_graph_ica(ica_result_radio_id):
         Output("python-error-ica", "children"),
         Input("update-button-ica", "n_clicks"),
         Input("page-selector-ica", "value"),
+        Input("ica-components-selection", "value"),
         State(ica_result_radio_id, "value"),
         State("data-path-store", "data"),
         State("offset-display-ica", "value"),
@@ -169,11 +182,13 @@ def register_update_graph_ica(ica_result_radio_id):
         State("max-iter", "value"),
         State("decim", "value"),
         State("graph-ica", "figure"),
+        State("history-store", "data"),
         prevent_initial_call=True,
     )
     def _update_graph_ica(
         n_clicks,
         page_selection,
+        selected_indices,
         ica_result_path,
         data_path,
         offset_selection,
@@ -184,8 +199,53 @@ def register_update_graph_ica(ica_result_radio_id):
         max_iter,
         decim,
         graph,
+        history_data,
     ):
-        """Update ICA signal visualization."""
+        """
+        Update the ICA signal visualization based on user interaction.
+
+        Calculates which components should be grayed out (those already excluded 
+        and those currently selected) and generates a Plotly figure showing 
+        the source time-courses for the selected time chunk.
+
+        Parameters
+        ----------
+        n_clicks : int
+            Trigger count for the update button.
+        page_selection : str or int
+            The index of the current data chunk to display.
+        selected_indices : list of int
+            Component indices selected by the user in the dropdown/checklist.
+        ica_result_path : str
+            File system path to the .fif file containing the ICA solution.
+        data_path : str
+            Path to the raw M/EEG data file.
+        offset_selection : float
+            Vertical offset between component traces for the butterfly/stacked plot.
+        color_selection : str
+            The color scheme to apply to the traces.
+        chunk_limits : list of tuples
+            Time boundaries (start, end) for each data segment.
+        n_components : int or float
+            The number of components extracted during ICA.
+        ica_method : str
+            The algorithm used for ICA decomposition.
+        max_iter : int
+            Convergence limit for the ICA algorithm.
+        decim : int
+            The decimation factor used during computation.
+        graph : dict
+            Current state of the 'graph-ica' figure (used to preserve x-axis zoom).
+        history_data : dict
+            Session store containing metadata and excluded ICA components.
+
+        Returns
+        -------
+        fig : plotly.graph_objects.Figure
+            The generated time-series plot of ICA components.
+        error : str
+            Status message or error trace to be displayed in the UI.
+        """
         if n_clicks == 0:
             return dash.no_update, dash.no_update
 
@@ -202,7 +262,20 @@ def register_update_graph_ica(ica_result_radio_id):
             )
 
         if None in (n_components, ica_method, max_iter, decim):
-            return dash.no_update, "You haven't compt"
+            return dash.no_update, "You haven't computed any ICA"
+        
+        meta = (history_data or {}).get("metadata", {})
+        ica_results = meta.get("ica_results", {})
+        
+        try:
+            permanently_excluded = set(ica_results[ica_result_path].get("excluded_components", []))
+        except Exception as e:
+            return (
+                dash.no_update,
+                "⚠️ You haven't select any ICA Result to plot.",
+            )
+
+        all_grayed: list = sorted(permanently_excluded | set(selected_indices or []))
 
         time_range = chunk_limits[int(page_selection)]
 
@@ -219,6 +292,7 @@ def register_update_graph_ica(ica_result_radio_id):
                 ica_result_path,
                 color_selection,
                 xaxis_range,
+                all_grayed,
             )
 
             return fig, error

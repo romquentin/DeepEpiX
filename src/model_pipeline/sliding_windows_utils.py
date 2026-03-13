@@ -1,8 +1,7 @@
-from pathlib import Path
 from tqdm import tqdm
 import numpy as np
+import mne
 from model_pipeline.utils import (
-    read_raw,
     interpolate_missing_channels,
     fill_missing_channels,
     save_obj,
@@ -10,105 +9,155 @@ from model_pipeline.utils import (
     standardize,
 )
 
+from typing import Union
+
+from pathlib import Path
 
 def save_data_matrices(
-    subject_path: str,
+    raw: mne.io.RawArray,
     output_dir: str,
     channel_groups: dict,
-    good_channels: dict,
+    good_channels: Union[dict, list],
     channel_type: str = "mag",
-    freq: tuple = (0.5, 50),
-    sfreq: int = 150,
 ) -> None:
     """
-    Apply preprocessing, extract MEG/EEG data, and save it in a pickle file.
+    Extract MEG/EEG data from a RawArray and save it as a pickle file.
 
-    Args:
-        subject_path: Path to raw MEG/EEG data file (.ds, .fif, or directory).
-        output_dir: Directory where processed data will be stored.
-        channel_groups: Dict of channel groups (must include "bad" if applicable).
-        good_channels: List of known good channels.
-        channel_type: Channel type to pick ("mag" or "eeg").
-        freq: Tuple (low_cutoff, high_cutoff) for bandpass filter.
+    Depending on whether the raw channel layout matches the reference
+    ``good_channels`` layout, this function either:
+
+    - Interpolates missing channels using spherical spline interpolation
+      (when channel names overlap with ``good_channels``), or
+    - Pads the data to the target channel count by duplicating existing
+      channels at regular intervals (fallback path).
+
+    The resulting data array of shape ``(n_channels, n_times)`` is saved
+    under the key ``"m/eeg"`` as a pickle file named ``data_raw``.
+
+    Parameters
+    ----------
+    raw : mne.io.RawArray
+        Preprocessed MNE Raw object. Channel names may include suffixes
+        (e.g. ``"MLC21-4408"``), which are stripped to base names
+        (e.g. ``"MLC21"``) before comparison with ``good_channels``.
+    output_dir : dict[str, list[str]]
+        Directory where processed data will be stored.
+    channel_groups : dict
+        Mapping from group name to list of channel names belonging to that
+        group. Groups named ``"bad"`` and ``"EEG"`` are excluded when
+        building the channel order for the ``mag`` fallback path.
+        The ``"bad"`` group is excluded for the ``eeg`` fallback path.
+    good_channels : dict[str, numpy.ndarray]
+        Reference channel layout mapping base channel names to their sensor
+        position vectors of shape (12,), as expected by MNE (position +
+        coil orientation). Used both to detect missing channels and to assign
+        sensor locations before interpolation.
+    channel_type : str, optional
+        Type of channels to process. Must be either ``"mag"`` (default) or
+        ``"eeg"``. Controls which groups are excluded when building the
+        fallback channel order.
+
+    Returns
+    -------
+    None
+        Data is saved to disk as a pickle file. The saved object is a dict
+        of the form {"m/eeg": [ndarray]}, where the array has shape
+        (n_channels, n_times) with n_channels == len(good_channels).
+
+    Raises
+    ------
+    ValueError
+        If channel_type is not "mag" or "eeg".
+
+    Notes
+    -----
+    The interpolation path calls :func:`interpolate_missing_channels`, which
+    uses MNE's spherical spline interpolation centered at origin=(0, 0, 0.04). 
+    The fallback path calls fill_missing_channels(), which duplicates existing 
+    channels and does not preserve spatial topology — prefer the interpolation path when possible.
     """
-    subject_path = Path(subject_path)
-    output_dir = Path(output_dir)
-
-    raw = read_raw(
-        subject_path,
-        preload=True,
-        verbose=False,
-        bad_channels=channel_groups.get("bad", []),
-    )
-
-    # Filtering and resampling
-    raw.filter(freq[0], freq[1], n_jobs=8)
-    raw.resample(sfreq).pick([channel_type])
+    if channel_type not in ("mag", "eeg"):
+        raise ValueError(f"Unsupported channel_type: {channel_type}")
+    
+    def get_base(name):
+        return name.split()[0].split("-")[0].strip()
+       
+    current_basenames = {get_base(ch) for ch in raw.info["ch_names"]}
+    can_interpolate = bool(current_basenames & set(good_channels.keys()))
 
     if channel_type == "mag":
-        first_key = next(iter(channel_groups), None)
-        base_name = first_key.split("-")[0]
-        if base_name in good_channels:
-            print("letsgo here")
+        if can_interpolate:
             raw = interpolate_missing_channels(raw, good_channels)
-            data = {"m/eeg": [raw.get_data()], "file": [str(subject_path)]}
+            data = {"m/eeg": [raw.get_data()]}
 
         else:
             channels_order = [
                 ch
                 for group, chans in channel_groups.items()
-                if (group != "bad" and group != "EEG")
+                if group not in ("bad", "EEG")
                 for ch in chans
             ]
             raw.reorder_channels(channels_order)
-
             meg_data = fill_missing_channels(raw, len(good_channels))
-            data = {"m/eeg": [meg_data], "file": [str(subject_path)]}
+            data = {"m/eeg": [meg_data]}
 
     elif channel_type == "eeg":
-        channels_order = [
-            ch
-            for group, chans in channel_groups.items()
-            if (group != "bad")
-            for ch in chans
-        ]
-        raw.reorder_channels(channels_order)
-
-        meg_data = fill_missing_channels(raw, len(good_channels))
-        data = {"m/eeg": [meg_data], "file": [str(subject_path)]}
-
-    else:
-        raise ValueError(f"Unsupported file type: {subject_path}")
+        if can_interpolate:
+            raw = interpolate_missing_channels(raw, good_channels)
+            data = {"m/eeg": [raw.get_data()]}
+        else:
+            channels_order = [
+                ch
+                for group, chans in channel_groups.items()
+                if group != "bad"
+                for ch in chans
+            ]
+            raw.reorder_channels(channels_order)
+            meg_data = fill_missing_channels(raw, len(good_channels))
+            data = {"m/eeg": [meg_data]}
 
     save_obj(data, "data_raw", output_dir)
 
 
 def create_windows(
     output_dir: str,
-    window_size_ms: int,
+    window_size_s: int,
     stand: bool,
     sfreq: int,
-    spike_spacing_from_border_ms: float,
+    spike_spacing_from_border_s: float,
 ) -> int:
     """
     Crop windows from the pickle file and save them in a binary file.
 
-    Args:
-        output_dir: Directory where processed data is stored.
-        window_size_ms: Window size in milliseconds.
-        stand: If True, standardize the data.
+    Parameters
+    ----------
+    output_dir : str
+        Directory where processed data is stored.
+    window_size_s : int
+        Window size in seconds.
+    stand : bool
+        If True, standardize the data before saving.
+    sfreq : int
+        Sampling frequency in Hz.
+    spike_spacing_from_border_s : float
+        Minimum spacing from window borders in seconds,
+        used to compute the stride between window centers.
 
-    Returns:
+    Returns
+    -------
+    int
         Total number of windows created.
+
+    Raises
+    ------
+    RuntimeError
+        If no valid windows could be created with the given parameters.
     """
     output_dir = Path(output_dir)
 
-    # Window size in samples (ms × sampling frequency)
-    window_size = int(window_size_ms * sfreq)
-    # Spacing between window centers (samples)
-    window_spacing = int((window_size_ms - 2 * spike_spacing_from_border_ms) * sfreq)
+    window_size = int(window_size_s * sfreq)
+    window_spacing = int((window_size_s - 2 * spike_spacing_from_border_s) * sfreq)
 
-    # Load preprocessed data
     data = load_obj("data_raw.pkl", output_dir)
 
     all_windows = []
@@ -116,7 +165,6 @@ def create_windows(
     block_indices_all = []
 
     for block_idx, block_data in enumerate(data["m/eeg"]):
-        # Compute window centers (in samples)
         window_centers = np.arange(window_size / 2, block_data.shape[1], window_spacing)
 
         block_windows = []
@@ -135,13 +183,11 @@ def create_windows(
     if not all_windows:
         raise RuntimeError("No valid windows were created. Check your parameters.")
 
-    # Stack and convert to float32 for binary saving
     X_all = np.stack(all_windows).astype("float32")
 
     if stand:
         X_all = standardize(X_all)
 
-    # Save binary MEG windows
     (output_dir / "data_raw_windows_bi").write_bytes(X_all.tobytes())
 
     # Save metadata
@@ -149,7 +195,6 @@ def create_windows(
     save_obj(np.array(block_indices_all), "data_raw_blocks", output_dir)
 
     return len(X_all)
-
 
 def generate_database(total_nb_windows: int) -> np.ndarray:
     """
@@ -166,9 +211,24 @@ def generate_database(total_nb_windows: int) -> np.ndarray:
 
 
 def get_win_data_signal(f, win, dim):
+    """
+    Load and normalize a single window from a binary MEG data file.
 
-    # Store sample
-    f.seek(dim[0] * dim[1] * win * 4)  # 4 because its float32 and dtype.itemsize = 4
+    Parameters
+    ----------
+    f : file object
+        Opened binary file containing MEG windows in float32 format.
+    win : int
+        Index of the window to retrieve.
+    dim : tuple of int
+        Shape of a single window as (n_channels, n_times).
+
+    Returns
+    -------
+    numpy.ndarray
+        Normalized window of shape (1, n_channels, n_times, 1).
+    """
+    f.seek(dim[0] * dim[1] * win * 4) 
     sample = np.fromfile(f, dtype="float32", count=dim[0] * dim[1])
     sample = sample.reshape(dim[1], dim[0])
     sample = np.swapaxes(sample, 0, 1)

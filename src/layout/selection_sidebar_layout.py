@@ -58,6 +58,28 @@ def create_selection(
                 html.Div(
                     [
                         html.Label(
+                            "Select signal to display:",
+                            style={
+                                "fontWeight": "bold",
+                                "fontSize": "14px",
+                                "marginBottom": "8px",
+                            },
+                        ),
+                        dcc.RadioItems(
+                            id="signal-version-radio",
+                            options=[{"label": "Filtered signal", "value": "__raw__"}],
+                            value="__raw__",
+                            inline=False,
+                            style={"margin": "10px 0", "fontSize": "12px"},
+                            persistence=True,
+                            persistence_type="session",
+                        ),
+                    ],
+                    style=BOX_STYLES["classic"],
+                ),
+                html.Div(
+                    [
+                        html.Label(
                             "Select Channels:",
                             style={
                                 "fontWeight": "bold",
@@ -136,7 +158,47 @@ def create_selection(
                         ),
                     ],
                     style=BOX_STYLES["classic"],
-                )
+                ),
+                html.Div(
+                [
+                    html.Label(
+                        "Select ICA components to remove (last computed):",
+                        style={
+                            "fontWeight": "bold",
+                            "fontSize": "14px",
+                            "marginBottom": "8px",
+                        },
+                    ),
+                    dcc.Checklist(
+                        id="ica-components-selection",
+                        options=[], 
+                        value=[],
+                        inline=False,
+                        persistence=True,
+                        persistence_type="session",
+                    ),
+                    dbc.Button(
+                        "Apply Exclusion",
+                        id="apply-ica-exclusion-button",
+                        color="danger",
+                        outline=True,
+                        size="sm",
+                        n_clicks=0,
+                        style=BUTTON_STYLES["big"],
+                    ),
+                ],
+                style=BOX_STYLES["classic"],
+                ),
+                dcc.Loading(
+                    id="loading-exclusion",
+                    type="default",
+                    children=[
+                        html.Div(
+                            id="exclusion-status",
+                            style={"marginTop": "10px", "marginBottom": "20px"},
+                        )
+                    ],
+                ),
             ]
         )
 

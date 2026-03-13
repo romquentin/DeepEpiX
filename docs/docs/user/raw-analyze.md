@@ -30,6 +30,7 @@ Available models:
 In the <i class="bi bi-stars"></i> **Spike Prediction** tab:
 
 - **Select your model**.
+- **Select the signal to use**.
 - **Optional**: enable **sensitivity analysis** and **onset adjustement**.
     - Sensitivity analysis (SmoothGrad) averages gradients over noisy inputs to highlight the most influential regions of the signal (available for simple TensorFlow models).
     - You can also choose GFP-based alignment, which adjusts the spike onset to the peak of Global Field Power for greater accuracy.

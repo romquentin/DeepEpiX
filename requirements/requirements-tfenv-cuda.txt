@@ -145,6 +145,12 @@ protobuf==5.29.4
     # via
     #   tensorboard
     #   tensorflow
+pyarrow==20.0.0
+    # via
+    #   dask
+    #   dask-expr
+pyarrow-hotfix==0.7
+    # via dask
 pygments==2.19.1
     # via rich
 pyparsing==3.2.3

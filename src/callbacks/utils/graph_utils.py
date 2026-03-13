@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import dash
 from dash import Patch
+from pathlib import Path
+import base64
 import plotly.graph_objects as go
 from layout.config_layout import (
     DEFAULT_FIG_LAYOUT,
@@ -72,16 +74,16 @@ def apply_default_layout(
     - Updated Plotly figure with applied layout.
     """
     layout = DEFAULT_FIG_LAYOUT.copy()
-    layout["xaxis"]["range"] = xaxis_range
-    layout["xaxis"]["minallowed"] = time_range[0]
-    layout["xaxis"]["maxallowed"] = time_range[1]
+    layout["xaxis"]["range"] = xaxis_range          #type: ignore
+    layout["xaxis"]["minallowed"] = time_range[0]   #type: ignore
+    layout["xaxis"]["maxallowed"] = time_range[1]   #type: ignore
 
     height_per_channel = 35  # if compact_view else 35
-    layout["height"] = max(500, len(selected_channels) * height_per_channel)
+    layout["height"] = max(500, len(selected_channels) * height_per_channel)  #type: ignore
 
     ymin = min(y_axis_ticks) - 2 * channel_offset
     ymax = max(y_axis_ticks) + 2 * channel_offset
-    layout["yaxis"]["range"] = [ymin, ymax]
+    layout["yaxis"]["range"] = [ymin, ymax]         #type: ignore
 
     fig.update_layout(layout)
     return fig
@@ -97,14 +99,15 @@ def generate_graph_time_channel(
     xaxis_range,
     channels_region,
     filter={},
+    excluded_ica_components=None,
 ):
     """Handles the preprocessing and figure generation for the M/EEG signal visualization."""
     import time
 
     # Get recording from cache
     start_time = time.time()
-    raw_ddf = pu.get_preprocessed_dataframe_dask(
-        data_path, freq_data, time_range[0], time_range[1], channels_region
+    raw_ddf, _ = pu.get_preprocessed_dataframe_dask(
+        data_path, freq_data, time_range[0], time_range[1], channels_region, excluded_ica_components=excluded_ica_components,
     )
 
     print(f"Step 1: Preprocessing completed in {time.time() - start_time:.2f} seconds.")
@@ -120,6 +123,11 @@ def generate_graph_time_channel(
     filter_df_start_time = time.time()
     try:
         filtered_raw_df = raw_ddf[selected_channels].compute()
+
+        clean_variance = filtered_raw_df.var().mean()
+        print(f"Variance : {clean_variance}")
+        print(type(filtered_raw_df))
+        print(filtered_raw_df.shape)
     except Exception:
         return (
             dash.no_update,
@@ -221,14 +229,56 @@ def generate_graph_time_ica(
     ica_result_path,
     color_selection,
     xaxis_range,
+    excluded_indices
 ):
-    """Handles the preprocessing and figure generation for the M/EEG signal visualization."""
-    import time  # For logging execution times
+    """
+    Generate a Plotly figure representing ICA component time courses.
+
+    This function coordinates the following visualization pipeline:
+    1. Retrieves resampled ICA sources using Dask/Parquet.
+    2. Computes vertical offsets for trace stacking.
+    3. Maps colors and opacities (dimming excluded components).
+    4. Renders the figure using WebGL (Scattergl) for smooth interaction.
+
+    Parameters
+    ----------
+    offset_selection : float
+        Scalar multiplier used to determine the vertical spacing between 
+        component traces.
+    time_range : tuple of float
+        The (start, end) timestamps in seconds for the data chunk to load.
+    data_path : str
+        Path to the original raw M/EEG data file.
+    ica_result_path : str
+        Path to the pre-computed MNE ICA solution file (.fif).
+    color_selection : {'rainbow', 'blue', 'white'}
+        The color scheme applied to the signal traces.
+    xaxis_range : list of float
+        The [min, max] values for the initial x-axis zoom level.
+    excluded_indices : list of int or set
+        Indices of ICA components (e.g., [1, 5]) that should be rendered 
+        with lower opacity to indicate they are marked for exclusion.
+
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        The resulting Plotly figure containing the styled ICA traces.
+    error : str or None
+        A descriptive error message if the process fails, otherwise None.
+    """
+    
+    import time
 
     start_time = time.time()
-    raw_ddf = pu.get_ica_dataframe_dask(
-        data_path, time_range[0], time_range[1], ica_result_path
-    )
+    try:
+        raw_ddf = pu.get_ica_components_dask(
+            data_path, time_range[0], time_range[1], ica_result_path
+        )
+    except Exception:
+        return (
+            dash.no_update,
+            "⚠️ You must select an ICA result before trying to display",
+        )
     print(f"Step 1: Preprocessing completed in {time.time() - start_time:.2f} seconds.")
 
     # Filter time range
@@ -284,10 +334,18 @@ def generate_graph_time_ica(
     fig = go.Figure()
 
     for col in shifted_filtered_raw_df.columns[:-1]:  # Exclude Time
+        try:
+            col_idx = int(col.replace("ICA", ""))
+        except (ValueError, TypeError):
+            col_idx = None
+
+        opacity = 0.2 if (excluded_indices and col_idx in excluded_indices) else 1.0
+        
         fig.add_trace(
             go.Scattergl(
                 x=shifted_filtered_raw_df["Time"],
                 y=shifted_filtered_raw_df[col],
+                opacity=opacity,
                 mode="lines",
                 name=col,
                 line=dict(color=color_map.get(col, None), width=1),
@@ -415,3 +473,14 @@ def update_annotations_on_graph(
     )
 
     return fig_patch
+
+def get_ica_components_figures(components_dir):
+    components_dir = Path(components_dir)
+    images_b64 = []
+
+    for png_path in sorted(components_dir.glob("page_*.png")):
+        with open(png_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+        images_b64.append(f"data:image/png;base64,{encoded}")
+
+    return images_b64

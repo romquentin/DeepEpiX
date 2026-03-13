@@ -34,7 +34,33 @@ def register_populate_memory_tab_contents():
         annotations_data,
         history_data,
     ):
-        """Populate memory tab content based on selected tab and stored folder path."""
+        """
+        Populate the Memory tab UI components based on stored session data.
+
+        Parameters
+        ----------
+        pathname : str
+            The current URL pathname (trigger).
+        selected_tab : str
+            The ID of the currently active tab in the memory view.
+        data_path : str
+            Path to the currently loaded dataset.
+        chunk_limits : list
+            List of time boundaries for data processing chunks.
+        freq_data : dict
+            Dictionary containing 'resample_freq', 'low_pass_freq', 
+            'high_pass_freq', and 'notch_freq'.
+        annotations_data : list of dict
+            List of dictionaries representing M/EEG annotations/markers.
+        history_data : list of dict
+            Logged history of actions performed during the session.
+
+        Returns
+        -------
+        tuple of dash.development.base_component.Component
+            A 4-element tuple containing the HTML/Dash components for 
+            (Subject, Raw Info, Event Stats, History).
+        """
         if not data_path or not chunk_limits or not freq_data:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
