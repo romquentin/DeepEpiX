@@ -262,7 +262,7 @@ def register_update_graph_ica(ica_result_radio_id):
             )
 
         if None in (n_components, ica_method, max_iter, decim):
-            return dash.no_update, "You haven't compute any ICA"
+            return dash.no_update, "You haven't computed any ICA"
         
         meta = (history_data or {}).get("metadata", {})
         ica_results = meta.get("ica_results", {})
