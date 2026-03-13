@@ -1,6 +1,7 @@
 # Dash & Plotly
 import dash
 from dash import Input, Output, State, callback
+import config
 
 # External Libraries
 
@@ -9,7 +10,7 @@ from callbacks.utils import path_utils as dpu
 from callbacks.utils import preprocessing_utils as pu
 from callbacks.utils import annotation_utils as au
 from callbacks.utils import channel_utils as chu
-
+from callbacks.utils import cache_utils as cu
 
 def register_handle_frequency_parameters():
     @callback(
@@ -96,6 +97,7 @@ def register_preprocess_meg_data():
             frequency settings, annotations, and navigation path.
         """
         NO_UPDATE = (dash.no_update,) * 10
+        cu.clear_old_cache_files_and_csv(f"{config.CACHE_DIR}")
 
         if n_clicks > 0:
             try:

@@ -397,21 +397,22 @@ def update_prediction_table(style, threshold, prediction_csv_path):
     Output("model-spike-name", "value"),
     Input("model-dropdown", "value"),
     Input("signal-version-predict", "value"),
+    Input("predict-preprocess-choice", "value"),
     State("history-store", "data"),
     prevent_initial_call=True,
 )
-def update_spike_name(model_path, signal_version, history_data):
+def update_spike_name(model_path, signal_version, preprocessing, history_data):
     """ Update predicted spike annotation's name"""
     if model_path is None:
         return dash.no_update
     model_name = os.path.splitext(os.path.basename(model_path))[0]
     if signal_version == "__raw__":
         signal_name = "raw"
-        return f"{model_name}_{signal_name}"
+        return f"{model_name}_{signal_name}_{preprocessing}"
     else:
         signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
         excluded = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
-        return f"{model_name}_{signal_name}_{excluded}"
+        return f"{model_name}_{signal_name}_{excluded}_{preprocessing}"
 
 
 def register_store_display_prediction():

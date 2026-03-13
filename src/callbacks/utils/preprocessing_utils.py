@@ -180,7 +180,6 @@ def get_preprocessed_dataframe_dask(
         Preprocessed data as MNE format.
     """
     os.makedirs(cache_dir, exist_ok=True)
-    cu.clear_old_cache_files(cache_dir)
 
     if excluded_ica_components:
         cleaned_cache = get_cache_filename(
@@ -372,7 +371,6 @@ def get_ica_components_dask(
         resampled to 300 Hz.
     """
     os.makedirs(cache_dir, exist_ok=True)
-    cu.clear_old_cache_files(cache_dir)
 
     cache_file = get_cache_filename_ica(
         data_path, start_time, end_time, ica_result_path, cache_dir

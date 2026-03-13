@@ -403,6 +403,7 @@ def display_model_names_checklist(annotations_store):
     Input("ground-truth-checkboxes", "value"),
     State("model-prediction-radio", "value"),
     State("annotation-store", "data"),
+    State("model-probabilities-store", "data"),
     prevent_initial_call=True,
 )
 def compute_performance(
