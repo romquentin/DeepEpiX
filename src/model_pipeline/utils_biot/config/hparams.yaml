@@ -73,7 +73,7 @@ data:
     cache_dir: ""
     dataloader_config:
       test:
-        batch_size: 50
+        batch_size: 1
         drop_last: false
         num_workers: 0
         pin_memory: false

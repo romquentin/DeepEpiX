@@ -15,9 +15,22 @@ In the <i class="bi bi-activity"></i> **Analyze** tab:
 - **To delete an entire event category**, go to the **Select** tab, choose the event type, and click **Delete**, then confirm.
 
 ## 3️⃣ Run a Prediction Model
+
+Available models:
+
+|        Model       | Window size |      Input data     | Implementation |         Available features         | Execution time (s)* | Performance (F1-score)** |
+|:------------------:|:-----------:|:-------------------:|:--------------:|:----------------------------------:|:-------------------:|:------------------------:|
+|         CNN        |    200ms    |    Raw MEG signal   |   Tensorflow   | Custom preprocessing Saliency maps |          53         |           0.471          |
+| Feature-based ANN |    200ms    | 6 features/ channel |   Tensorflow   |        Custom preprocessing        |          26         |           0.400          |
+|     Transformer    |    400ms    |    Raw MEG signal   |     Pytorch    |        Custom preprocessing        |         123         |           0.351    
+
+*: For 3-minutes MEG recording with 275 sensors. Using the Docker install, running on a GPU (NVIDIA RTX A2000 8GB Laptop GPU)
+**: Results averaged across 10 patients from the Lyon dataset (see publication).
+
 In the <i class="bi bi-stars"></i> **Spike Prediction** tab:
 
 - **Select your model**.
+- **Select the signal to use**.
 - **Optional**: enable **sensitivity analysis** and **onset adjustement**.
     - Sensitivity analysis (SmoothGrad) averages gradients over noisy inputs to highlight the most influential regions of the signal (available for simple TensorFlow models).
     - You can also choose GFP-based alignment, which adjusts the spike onset to the peak of Global Field Power for greater accuracy.

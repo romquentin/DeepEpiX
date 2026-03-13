@@ -35,14 +35,14 @@ def get_annotation_descriptions(annotations_store):
 
 def get_heartbeat_event(raw, ch_name):
     # Find ECG events using the `find_ecg_events` function
-    events, _, _, _ = mne.preprocessing.find_ecg_events(raw, ch_name=ch_name) #type: ignore
+    events, _, _ = mne.preprocessing.find_ecg_events(raw, ch_name=ch_name) #type: ignore
 
     sfreq = raw.info["sfreq"]
     event_list = []
     for event in events:
         onset_sample = event[0]
         onset_sec = onset_sample / sfreq
-        description = "ECG Event"
+        description = "ECG Event Helper Markers"
         duration = 0
         event_list.append(
             {"onset": onset_sec, "description": description, "duration": duration}
@@ -82,7 +82,6 @@ def get_annotations_dataframe(raw, heartbeat_ch_name, modality):
             print(f"Warning: Could not extract heartbeat events: {e}")
 
     annotations_dict = annotations_df.to_dict(orient="records")
-
     return annotations_dict
 
 

@@ -631,10 +631,6 @@ def load_and_process_meg_data(
         # Select channels based on good channels and location information
         raw, channel_info = select_channels(raw, good_channels)
 
-        print("########################################")
-        print(raw.info["ch_names"])
-        print(len(raw.info["ch_names"]))
-
         # Get raw data from MNE (in order of selected_channels)
         raw_data = np.array(raw.get_data())  # Shape: (n_selected_channels, n_timepoints)
         n_timepoints = raw_data.shape[1]

@@ -327,6 +327,8 @@ layout = html.Div(
             - If None (default), ECG channel is used if present. 
             - If None and no ECG channel is present, a synthetic ECG channel is created from the cross-channel average. 
             - This synthetic channel can only be created from MEG channels.
+
+            The software uses mne.preprocessing.find_ecg_events() function which might be inacurate. Annotations should be considered as optional helper markers rather than validated ground truth.
             """,
                                     target="heartbeat-channel",
                                     placement="right",

@@ -142,8 +142,6 @@ def register_preprocess_meg_data():
                         channels_dict,
                         prep_raw=prep_raw,
                     )
-
-                print("COUCOU")
                 cache_file = pu.get_cache_filename(data_path, freq_data)
                 pu.save_mne_sidecar(cache_file, prep_raw)
 

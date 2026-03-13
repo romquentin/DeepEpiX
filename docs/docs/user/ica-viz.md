@@ -7,6 +7,7 @@ If the left sidebar is collapsed, click the <i class="bi bi-layout-sidebar-inset
 
 - <i class="bi bi-noise-reduction"></i> **Compute**
 - <i class="bi bi-hand-index-thumb"></i> **Select**
+- <i class="bi bi-grid-3x3-gap"></i> **View ICA Scalp Field Topographies**
 
 ## 2️⃣ Compute ICA with the method of your choice
 In the <i class="bi bi-noise-reduction"></i> **Compute** tab:
@@ -20,17 +21,22 @@ In the <i class="bi bi-noise-reduction"></i> **Compute** tab:
 
 The ICA solution computed with `mne.preprocessing.ICA(...)` method is saved in cache as a `.fif` file. Progress and past computations appear in the **ICA History** log.
 
-## 3️⃣ Select ICA result and set your display preferences
+## 3️⃣ Select ICA result set your display preferences and exclude components
 
 In the <i class="bi bi-hand-index-thumb"></i> **Select** tab:
 
 - Pick an ICA result.
+- Select ICA componets to remove from the signal.
 - Enable **annotations** to display on the main graph and in the annotation overview (below the time slider).
 - Set **amplitude** (1–10) to adjust signal scaling (affects how compressed or expanded the signal appears vertically).
 - Pick a **color** scheme (e.g., rainbow applies group-based coloring).
 - Click the 🔄 **Refresh** button on the top-left **Modebar** to apply changes.
 
-## 4️⃣ Once the Graph is Displayed
+## 4️⃣ Visualize Scalp Fiel Topographies for each component
+
+Clicking the <i class="bi bi-grid-3x3-gap"></i> **View ICA Scalp Field Topographies** tab opens a pop-up window that displays the topographies associated with each calculated component.
+
+## 5️⃣ Once the Graph is Displayed
 **Left Modebar:**
 
 - 🔄 **Refresh** the graph after changing ICA result, amplitude, or color settings.

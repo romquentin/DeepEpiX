@@ -248,14 +248,19 @@ def register_apply_ica_exclusion():
 def register_fill_ica_results(ica_result_radio_id):
     @callback(
         Output(ica_result_radio_id, "options"),
+        Output(ica_result_radio_id, "value"),
         Input("sidebar-tabs-ica", "active_tab"),
         Input("ica-store", "data"),
         prevent_initial_call=False,
     )
     def fill_ica_results(pathname, ica_store):
-        if ica_store is None:
-            return dash.no_update
-        return [{"label": os.path.basename(k), "value": k} for k in ica_store]
+        if not ica_store:
+            return dash.no_update, dash.no_update
+
+        options = [{"label": os.path.basename(k), "value": k} for k in ica_store]
+        selected = ica_store[-1]
+
+        return options, selected
     
 def register_plot_ica_maps(ica_result_radio_id):
     @callback(

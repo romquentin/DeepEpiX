@@ -90,7 +90,7 @@ layout = html.Div(
                                     color="info",
                                     size="sm",
                                     className="mb-2",
-                                    title="View ICA Components",
+                                    title="View ICA Scalp Field Topographies",
                                 ),
                             ],
                             style={

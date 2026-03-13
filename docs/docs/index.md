@@ -16,6 +16,7 @@ This app provides an interactive web interface for loading, preprocessing, annot
 - ✅ Drop bad channels
 - ✅ Visualize event statistics, power spectral density, topomap, ICA...
 - ✅ Display temporal signal with various options
+- ✅ Remove artifacts using ICA
 - ✅ Create custom sensors layout (montage)
 - ✅ Run prediction models
 - ✅ Measure their performances

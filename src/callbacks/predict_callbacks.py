@@ -154,7 +154,7 @@ def register_execute_predict_script():
         venv : str
             The selected environment type (e.g., "TensorFlow" or "PyTorch").
         smoothgrad_threshold : float
-            
+            Indicated the minimum model's probability to compute SmoothGrad on the window
         sensitivity_analysis : bool
             Whether to execute the SmoothGrad attribution script.
         adjust_onset : bool
@@ -228,6 +228,9 @@ def register_execute_predict_script():
 
         need_predictions = not predictions_csv_path.exists()
         need_smoothgrad = sensitivity_analysis and not smoothgrad_path.exists()
+
+        if need_smoothgrad and os.path.basename(model_path) != "model_CNN.keras":
+            return "⚠️ SmoothGrad is only available for model_CNN model", dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         if not need_predictions and not need_smoothgrad:
             return (
