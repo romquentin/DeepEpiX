@@ -32,7 +32,7 @@ In the <i class="bi bi-hand-index-thumb"></i> **Select** tab:
 - Pick a **color** scheme (e.g., rainbow applies group-based coloring).
 - Click the 🔄 **Refresh** button on the top-left **Modebar** to apply changes.
 
-## 4️⃣ Visualize Scalp Fiel Topographies for each component
+## 4️⃣ Visualize Scalp Field Topographies for each component
 
 Clicking the <i class="bi bi-grid-3x3-gap"></i> **View ICA Scalp Field Topographies** tab opens a pop-up window that displays the topographies associated with each calculated component.
 
