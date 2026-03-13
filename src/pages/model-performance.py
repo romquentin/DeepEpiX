@@ -403,11 +403,11 @@ def display_model_names_checklist(annotations_store):
     Input("ground-truth-checkboxes", "value"),
     State("model-prediction-radio", "value"),
     State("annotation-store", "data"),
-    State("model-probabilities-store", "data"),
+    State("model-csv-store", "data"),
     prevent_initial_call=True,
 )
 def compute_performance(
-    tolerance, threshold, ground_truth, model_prediction, annotations
+    tolerance, threshold, ground_truth, model_prediction, annotations, model_csv_store
 ):
     if not model_prediction or not ground_truth or tolerance is None:
         error = "⚠️ Error: Missing inputs. Please select model predictions, ground truth, tolerance and threshold."
@@ -582,8 +582,17 @@ def compute_performance(
     # F1 vs. Threshold
     thresholds = [round(x * 0.05, 2) for x in range(1, 21)]
     f1_by_thresh = []
+
+    csv_path = model_csv_store.get(model_prediction) if model_csv_store else None
+
     for th in thresholds:
-        tp, fp, fn, *_ = pu.compute_matches(model_onsets, gt_onsets, delta)
+        if csv_path:
+            df = pd.read_csv(csv_path)
+            model_onsets_th = df[df["probas"] > th]["onset"].values
+        else:
+            model_onsets_th = model_onsets
+
+        tp, fp, fn, *_ = pu.compute_matches(model_onsets_th, gt_onsets, delta)
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = (

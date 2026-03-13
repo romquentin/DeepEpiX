@@ -421,12 +421,14 @@ def register_store_display_prediction():
         Output("sidebar-tabs", "active_tab"),
         Output("store-display-div", "style", allow_duplicate=True),
         Output("history-store", "data"),
+        Output("model-csv-store", "data"),
         Input("store-display-button", "n_clicks"),
         State("annotation-store", "data"),
         State("model-probabilities-store", "data"),
         State("adjusted-threshold", "value"),
         State("model-spike-name", "value"),
         State("history-store", "data"),
+        State("model-csv-store", "data"),
         prevent_initial_call=True,
     )
     def store_display_prediction(
@@ -436,25 +438,33 @@ def register_store_display_prediction():
         threshold,
         spike_name,
         history_data,
+        model_csv_store,
     ):
         if not n_clicks or n_clicks == 0 or prediction_csv_path is None:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
+        if model_csv_store and spike_name in model_csv_store:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        
         if not annotation_data:
             annotation_data = []
 
         df = pd.read_csv(prediction_csv_path[0])
         prediction_df = df[df["probas"] > threshold]
+
         new_annotations = prediction_df[["onset", "duration"]].copy()
         new_annotations["description"] = spike_name  # Set spike name as description
         new_annotations_dict = new_annotations.to_dict(orient="records") #type: ignore
+
         annotation_data.extend(new_annotations_dict)
+
+        model_csv_store[spike_name] = prediction_csv_path[0]
 
         action = f"Tested model with <{spike_name}> as the predicted event name.\n"
         history_data = hu.fill_history_data(history_data, "models", action)
 
         # Return updated annotations and switch tab
-        return annotation_data, "selection-tab", {"display": "none"}, history_data
+        return annotation_data, "selection-tab", {"display": "none"}, history_data, model_csv_store,
 
 def register_smoothgrad_threshold():
     @callback(
