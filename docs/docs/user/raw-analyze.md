@@ -18,11 +18,11 @@ In the <i class="bi bi-activity"></i> **Analyze** tab:
 
 Available models:
 
-|        Model       | Window size |      Input data     | Implementation |         Available features         | Execution time (s)* | Performance (F1-score)** |
-|:------------------:|:-----------:|:-------------------:|:--------------:|:----------------------------------:|:-------------------:|:------------------------:|
-|         CNN        |    200ms    |    Raw MEG signal   |   Tensorflow   | Custom preprocessing Saliency maps |          53         |           0.471          |
-| Feature-based ANN |    200ms    | 6 features/ channel |   Tensorflow   |        Custom preprocessing        |          26         |           0.400          |
-|     Transformer    |    400ms    |    Raw MEG signal   |     Pytorch    |        Custom preprocessing        |         123         |           0.351    
+|        Model       | Window length |      Input data     |  Framework | Number of parameters | Execution time (s)* | Performance (F1-score)** |
+|:------------------:|:-------------:|:-------------------:|:----------:|:--------------------:|:-------------------:|:------------------------:|
+|         CNN        |     200ms     |    Raw MEG signal   | Tensorflow |       1,095,681      |          53         |           0.471          |
+| Feature- based ANN |     200ms     | 6 features/ channel | Tensorflow |        913,000       |          26         |           0.400          |
+|     Transformer    |     400ms     |    Raw MEG signal   |   Pytorch  |       3,329,282      |         123         |           0.351          |
 
 *: For 3-minutes MEG recording with 275 sensors. Using the Docker install, running on a GPU (NVIDIA RTX A2000 8GB Laptop GPU)
 **: Results averaged across 10 patients from the Lyon dataset (see publication).
