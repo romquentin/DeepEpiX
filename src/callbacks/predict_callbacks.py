@@ -423,14 +423,19 @@ def update_spike_name(model_path, signal_version, preprocessing, history_data):
     """ Update predicted spike annotation's name"""
     if model_path is None:
         return dash.no_update
+
     model_name = os.path.splitext(os.path.basename(model_path))[0]
+
+    if preprocessing == "same_as_training":
+        return f"{model_name}_same_as_training"
+    
     if signal_version == "__raw__":
         signal_name = "raw"
-        return f"{model_name}_{signal_name}_{preprocessing}"
+        return f"{model_name}_raw"
     else:
         signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
         excluded = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
-        return f"{model_name}_{signal_name}_{excluded}_{preprocessing}"
+        return f"{model_name}_{signal_name}_{excluded}"
 
 
 def register_store_display_prediction():
@@ -460,29 +465,31 @@ def register_store_display_prediction():
     ):
         if not n_clicks or n_clicks == 0 or prediction_csv_path is None:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-        if model_csv_store and spike_name in model_csv_store:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
         
         if not annotation_data:
             annotation_data = []
+
+        unique_spike_name = spike_name
+        counter = 1
+        while unique_spike_name in model_csv_store:
+            unique_spike_name = f"{spike_name} ({counter})"
+            counter += 1
 
         df = pd.read_csv(prediction_csv_path[0])
         prediction_df = df[df["probas"] > threshold]
 
         new_annotations = prediction_df[["onset", "duration"]].copy()
-        new_annotations["description"] = spike_name  # Set spike name as description
+        new_annotations["description"] = unique_spike_name 
         new_annotations_dict = new_annotations.to_dict(orient="records") #type: ignore
-
         annotation_data.extend(new_annotations_dict)
 
-        model_csv_store[spike_name] = prediction_csv_path[0]
+        model_csv_store[unique_spike_name] = prediction_csv_path[0]
 
-        action = f"Tested model with <{spike_name}> as the predicted event name.\n"
+        action = f"Tested model with <{unique_spike_name}> as the predicted event name.\n"
         history_data = hu.fill_history_data(history_data, "models", action)
 
         # Return updated annotations and switch tab
-        return annotation_data, "selection-tab", {"display": "none"}, history_data, model_csv_store,
+        return annotation_data, "selection-tab", {"display": "none"}, history_data, model_csv_store
 
 def register_smoothgrad_threshold():
     @callback(
