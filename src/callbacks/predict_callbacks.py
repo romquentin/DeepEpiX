@@ -273,7 +273,6 @@ def register_execute_predict_script():
             )
             model_config = f"{STATIC_DIR}/model_config.json"
 
-            print(f"Model config : {model_config}")
             mne_info_path, df = pu.preprocess_same_as_training(model_config, model_path, data_path, channels_dict, signal_cache_path)
         
         # Otherwise, execute model
