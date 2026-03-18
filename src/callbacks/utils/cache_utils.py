@@ -14,6 +14,16 @@ def clear_old_cache_files_and_csv(cache_dir, max_age_minutes=120, verbose=True):
     """
     now = time.time()
     cache_dir = Path(cache_dir)
+    for pattern in ["*.csv", "*.png"]:
+        for file in cache_dir.rglob(pattern):
+            try:
+                file.unlink()
+                if verbose: 
+                    print(f"Suppress : {file.name}")
+            except Exception as e:
+                if verbose: 
+                    print(f"Error while deleting {file.name} : {e}")
+
     for csv_file in cache_dir.glob("*.csv"):
         csv_file.unlink()
     for item in cache_dir.glob("*"):

@@ -97,9 +97,8 @@ def register_preprocess_meg_data():
             frequency settings, annotations, and navigation path.
         """
         NO_UPDATE = (dash.no_update,) * 10
-        cu.clear_old_cache_files_and_csv(f"{config.CACHE_DIR}")
-
         if n_clicks > 0:
+            cu.clear_old_cache_files_and_csv(f"{config.CACHE_DIR}")
             try:
                 raw = dpu.read_raw(
                     data_path, preload=True, verbose=False, bad_channels=None
