@@ -117,7 +117,7 @@ def register_compute_ica():
                 channel_store, config.CACHE_DIR, ica_store
             )
 
-            status_msg = "✅ Reusing existing ICA results" if is_from_cache else "✅ Calcul ICA terminé"
+            status_msg = "✅ Reusing existing ICA results" if is_from_cache else "✅ ICA computation completed"
 
             for start_time, end_time in chunk_limits:
                 pu.get_ica_components_dask(data_path, start_time, end_time, ica_path)
