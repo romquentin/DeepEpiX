@@ -6,7 +6,7 @@
         "notch": "None"
     },
 
-    "model_feature_only.keras":{
+    "model_features_only.keras":{
         "sfreq": 150,
         "highpass": 0.5,
         "lowpass": 50.0,
