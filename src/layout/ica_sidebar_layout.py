@@ -16,7 +16,7 @@ def create_compute():
             html.Div(
                 [
                     html.Label(
-                        "Number of Components:", style={**LABEL_STYLES["classic"]}
+                        "Number of components or minimal variance to explain:", style={**LABEL_STYLES["classic"]}
                     ),
                     dbc.Input(
                         id="n-components",  # Unique ID for each input

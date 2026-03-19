@@ -98,7 +98,26 @@ def test_model(
     channel_groups=None,
     signal_name=None,
 ):
-    """Run the full pipeline: prepare data, predict, adjust onsets, and save results."""
+    """
+    Run the full pipeline: prepare data, predict, adjust onsets, and save results.
+    
+    Parameters
+    ----------
+    model_name: str
+        Path to the model location
+    output_path: str
+        Path to the cache directory
+    signal_cache_path: str
+        Path to the signal preprocessed during the session
+    mne_info_cache_path: str
+        Path to the json file containing mne infos
+    adjust_onset: bool
+        Whether to use GFD to recalibrate predicted spike
+    channel_groups: dict
+        Dictionnary containing grouped channels
+    signal_name: str
+        Name of the signal containing ICA information
+    """
     raw, metadata = load_raw_from_parquet(signal_cache_path, mne_info_cache_path)
 
     # 1. Data preparation

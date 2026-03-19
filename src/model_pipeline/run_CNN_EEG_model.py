@@ -19,7 +19,6 @@ from model_pipeline.sliding_windows_utils import (
     get_win_data_signal,
 )
 from model_pipeline.utils import (
-    read_raw,
     load_obj,
     compute_gfp,
     find_peak_gfp,
