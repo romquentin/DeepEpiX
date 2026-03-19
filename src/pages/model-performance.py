@@ -582,6 +582,7 @@ def compute_performance(
     # F1 vs. Threshold
     thresholds = [round(x * 0.05, 2) for x in range(1, 21)]
     f1_by_thresh = []
+    delta = tolerance / 1000
 
     csv_path = model_csv_store.get(model_prediction) if model_csv_store else None
 
