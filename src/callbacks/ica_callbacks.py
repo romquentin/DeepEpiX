@@ -117,22 +117,26 @@ def register_compute_ica():
                 channel_store, config.CACHE_DIR, ica_store
             )
 
-            status_msg = "✅ Reusing existing ICA results" if is_from_cache else "✅ ICA computation complete"
+            if is_from_cache:
+                status_msg = "✅ Reusing existing ICA results"
+                return status_msg, 0, ica_store, history_data, components_dir_store
 
-            for start_time, end_time in chunk_limits:
-                pu.get_ica_components_dask(data_path, start_time, end_time, ica_path)
+            else:
+                status_msg = "✅ ICA computation complete"
+                for start_time, end_time in chunk_limits:
+                    pu.get_ica_components_dask(data_path, start_time, end_time, ica_path)
 
-            action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
-            history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var, ica_key=str(ica_path))
-            if str(ica_path) not in ica_store:
-                ica_store.append(str(ica_path))
+                action = f"Computed ICA with <n_components = {n_components}, method: {ica_method}, max_iter: {max_iter}, decim: {decim}> as parameters.\n"
+                history_data = hu.fill_history_data(history_data, "ICA", action, n_components, explained_var, ica_key=str(ica_path))
+                if str(ica_path) not in ica_store:
+                    ica_store.append(str(ica_path))
 
-            if not isinstance(components_dir_store, dict):
-                components_dir_store = {}
+                if not isinstance(components_dir_store, dict):
+                    components_dir_store = {}
 
-            components_dir_store[str(ica_path)] = str(components_dir)
+                components_dir_store[str(ica_path)] = str(components_dir)
 
-            return status_msg, 0, ica_store, history_data, components_dir_store
+                return status_msg, 0, ica_store, history_data, components_dir_store
 
         except Exception as e:
             return f"Erreur : {str(e)}", dash.no_update, dash.no_update, dash.no_update, dash.no_update
@@ -193,8 +197,6 @@ def register_apply_ica_exclusion():
         clear_selection : list
             An empty list used to reset the component selection dropdown/checklist.
         """
-        if not ica_result_path:
-            return dash.no_update, dbc.Alert("No ICA result selected.", color="warning"), []
         
         if not n_clicks:
             return dash.no_update, dash.no_update, dash.no_update

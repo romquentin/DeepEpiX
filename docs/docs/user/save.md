@@ -18,3 +18,4 @@ In the <i class="bi bi-floppy"></i> **Save** tab:
 - Select a **saving format**:
     - **```.fif``` is recommended**.
     - **original**: specific to ```.ds``` format, saves only the new marker file.
+    - **csv**: saves selected annotations in a csv file.
