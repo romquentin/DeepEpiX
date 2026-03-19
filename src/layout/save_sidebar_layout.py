@@ -94,6 +94,11 @@ def create_save():
                                         "value": "fif",
                                         "id": "radio-fif",
                                     },
+                                    {
+                                        "label": "CSV (save annotations only)",
+                                        "value": "csv",
+                                        "id": "radio-csv",
+                                    },
                                 ],
                                 value="fif",
                                 inline=False,
@@ -107,6 +112,8 @@ def create_save():
                     - If the original format is .ds, only the new markerfile is saved; bad channels cannot be saved. By default, the old marker file is renamed to 'OldMarkerFile_{date}.mrk', and the new one is saved as 'MarkerFile.mrk' in the subject folder to ensure backward compatibility.\n
 
                     - Use the FIF format to include annotations and bad channels. This is recommended for preserving full metadata. By default, keeps a trace of the old .fif file renamed to {original_name}_{date}.fif.
+
+                    - Used the CSV format to save the annotations so they can be easily reused.
                     """,
                                 target="help-saving-format",
                                 placement="left",
