@@ -14,7 +14,7 @@ COPY requirements/ /DeepEpiX/requirements/
 # Install system dependencies including GUI support
 RUN apt-get update && apt-get install -y \
     python3-tk
- 
+
 # Create virtual environments within the project directory
 RUN python3 -m venv /DeepEpiX/.dashenv
 RUN python3 -m venv /DeepEpiX/.tfenv
