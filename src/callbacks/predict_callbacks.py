@@ -221,10 +221,25 @@ def register_execute_predict_script():
 
         cache_dir = config.CACHE_DIR
         signal_name_with_ica = f"{signal_name}_{excluded_ica_comp}" if excluded_ica_comp is not None else signal_name
-        signal_name_with_preprocess = f"{signal_name_with_ica}_{preprocessing_option}"
+        signal_name_with_preprocess = "same_as_training" if preprocessing_option == "same_as_training" else f"{signal_name_with_ica}_{preprocessing_option}"
 
         predictions_csv_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_preprocess}_predictions.csv"
         smoothgrad_path = cache_dir / f"{os.path.basename(model_path)}_{signal_name_with_preprocess}_smoothGrad.pkl"
+
+        # When same_as_training is selected, ICA component info embedded in the signal name is irrelevant because preprocessing 
+        # is redone from scratch using the model's config.
+        if preprocessing_option == "same_as_training":
+            model_basename = os.path.basename(model_path)
+            existing_csv_candidates = list(cache_dir.glob(f"{model_basename}_*_same_as_training_predictions.csv"))
+
+            if existing_csv_candidates:
+                # All same_as_training runs for a given model produce identical results, so any existing file is a valid cache hit.
+                predictions_csv_path = existing_csv_candidates[0]
+
+            existing_pkl_candidates = list(cache_dir.glob(f"{model_basename}_*_same_as_training_smoothGrad.pkl"))
+
+            if existing_pkl_candidates:
+                smoothgrad_path = existing_pkl_candidates[0]
 
         need_predictions = not predictions_csv_path.exists()
         need_smoothgrad = sensitivity_analysis and not smoothgrad_path.exists()
@@ -233,8 +248,13 @@ def register_execute_predict_script():
             return "⚠️ SmoothGrad is only available for model_CNN model", dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
         if not need_predictions and not need_smoothgrad:
+            reuse_message = (
+                "✅ Reusing existing model predictions (same_as_training preprocessing is signal-independent)"
+                if preprocessing_option == "same_as_training"
+                else "✅ Reusing existing model predictions"
+            )
             return (
-                "✅ Reusing existing model predictions",
+                reuse_message,
                 0,
                 {"display": "block"},
                 [str(predictions_csv_path)],
@@ -405,14 +425,19 @@ def update_spike_name(model_path, signal_version, preprocessing, history_data):
     """ Update predicted spike annotation's name"""
     if model_path is None:
         return dash.no_update
+    
     model_name = os.path.splitext(os.path.basename(model_path))[0]
+
+    if preprocessing == "same_as_training":
+        return f"{model_name}_same_as_training"
+    
     if signal_version == "__raw__":
         signal_name = "raw"
-        return f"{model_name}_{signal_name}_{preprocessing}"
+        return f"{model_name}_raw"
     else:
         signal_name = os.path.basename(signal_version).split("-ica.fif")[0]
         excluded = history_data["metadata"]["ica_results"][signal_version]["excluded_components"]
-        return f"{model_name}_{signal_name}_{excluded}_{preprocessing}"
+        return f"{model_name}_{signal_name}_{excluded}"
 
 
 def register_store_display_prediction():
@@ -442,29 +467,32 @@ def register_store_display_prediction():
     ):
         if not n_clicks or n_clicks == 0 or prediction_csv_path is None:
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-
-        if model_csv_store and spike_name in model_csv_store:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
         
         if not annotation_data:
             annotation_data = []
+
+        unique_spike_name = spike_name
+        counter = 1
+        while unique_spike_name in model_csv_store:
+            unique_spike_name = f"{spike_name} ({counter})"
+            counter += 1
 
         df = pd.read_csv(prediction_csv_path[0])
         prediction_df = df[df["probas"] > threshold]
 
         new_annotations = prediction_df[["onset", "duration"]].copy()
-        new_annotations["description"] = spike_name  # Set spike name as description
+        new_annotations["description"] = unique_spike_name  # Set spike name as description
         new_annotations_dict = new_annotations.to_dict(orient="records") #type: ignore
 
         annotation_data.extend(new_annotations_dict)
 
-        model_csv_store[spike_name] = prediction_csv_path[0]
+        model_csv_store[unique_spike_name] = prediction_csv_path[0]
 
-        action = f"Tested model with <{spike_name}> as the predicted event name.\n"
+        action = f"Tested model with <{unique_spike_name}> as the predicted event name.\n"
         history_data = hu.fill_history_data(history_data, "models", action)
 
         # Return updated annotations and switch tab
-        return annotation_data, "selection-tab", {"display": "none"}, history_data, model_csv_store,
+        return annotation_data, "selection-tab", {"display": "none"}, history_data, model_csv_store
 
 def register_smoothgrad_threshold():
     @callback(

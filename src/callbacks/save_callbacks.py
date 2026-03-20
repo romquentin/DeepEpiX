@@ -3,6 +3,8 @@ import dash
 from dash import Input, Output, State, callback
 from datetime import datetime
 import mne
+import pandas as pd
+from collections import defaultdict
 from callbacks.utils import markerfile_utils as mu
 from callbacks.utils import annotation_utils as au
 from callbacks.utils import path_utils as dpu
@@ -59,9 +61,10 @@ def register_save_modifications():
         State("annotations-to-save-checkboxes", "value"),
         State("annotation-store", "data"),
         State("bad-channels-to-save-checkboxes", "value"),
+        State("csv-filename-input", "value"),
     )
     def _save_modifications(
-        n_clicks, data_path, format, annotations_to_save, annotations, bad_channels
+        n_clicks, data_path, format, annotations_to_save, annotations, bad_channels, csv_filename
     ):
         """
         Export modified annotations and bad channel metadata to disk.
@@ -80,6 +83,8 @@ def register_save_modifications():
             The full annotation data from the store.
         bad_channels : list of str
             List of channel names marked as bad.
+        csv_filename : str
+            Name to be used when saving CSV file.
 
         Returns
         -------
@@ -99,7 +104,38 @@ def register_save_modifications():
                 is_fif = data_path.endswith(".fif")
                 is_dir = os.path.isdir(data_path)
 
-                if format == "original":
+                if format == "csv":
+                    # Filter annotations
+                    filtered = [a for a in annotations if a["description"] in annotations_to_save]
+
+                    if not filtered:
+                        return "⚠️ Error: No matching annotations to save."
+
+                    grouped_annotations = defaultdict(list)
+                    for a in filtered:
+                        grouped_annotations[a["description"]].append(a)
+
+                    rows = []
+                    for desc in sorted(grouped_annotations, key=lambda d: grouped_annotations[d][0]["onset"]):
+                        group_sorted = sorted(grouped_annotations[desc], key=lambda x: x["onset"])
+                        for a in group_sorted:
+                            rows.append({
+                                "onset (s)": a["onset"],
+                                "duration (s)": a["duration"],
+                                "description": a["description"],
+                            })
+
+                    df = pd.DataFrame(rows)
+
+                    csv_name = (csv_filename or "annotations").strip() or "annotations"
+                    if is_fif or is_ds or is_dir:
+                        fname = os.path.join(os.path.dirname(data_path), f"{csv_name}.csv")
+                    else:
+                        return "⚠️ Error: Unsupported folder path format."
+
+                    df.to_csv(fname, index=False, float_format="%.4f")
+
+                elif format == "original":
                     if is_ds:
                         # Rename old marker file
                         old_mrk_name = (
@@ -152,3 +188,13 @@ def register_save_modifications():
                 return f"⚠️ Error saving the file: {str(e)}"
 
         return dash.no_update
+    
+def register_csv_name():
+    @callback(
+        Output("csv-filename-div", "style"),
+        Input("saving-format-radio", "value"),
+    )
+    def toggle_csv_filename_div(format_value):
+        if format_value == "csv":
+            return {"marginBottom": "20px", "display": "block"}
+        return {"marginBottom": "20px", "display": "none"}

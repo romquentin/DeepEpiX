@@ -46,6 +46,7 @@ def register_preprocess_meg_data():
         Output("history-store", "data", allow_duplicate=True),
         Output("ica-store", "data", allow_duplicate=True),
         Output("ica-components-dir-store", "data", allow_duplicate=True),
+        Output("model-csv-store", "data", allow_duplicate=True),
         Input("preprocess-display-button", "n_clicks"),
         State("data-path-store", "data"),
         State("resample-freq", "value"),
@@ -96,7 +97,7 @@ def register_preprocess_meg_data():
             Updated states for Dash components including status messages, 
             frequency settings, annotations, and navigation path.
         """
-        NO_UPDATE = (dash.no_update,) * 10
+        NO_UPDATE = (dash.no_update,) * 11
 
         if n_clicks > 0:
             try:
@@ -157,7 +158,8 @@ def register_preprocess_meg_data():
                     "/viz/raw-signal",
                     [],
                     [],                              
-                    None,                           
+                    None,
+                    {}                           
                 )
 
             except Exception as e:
