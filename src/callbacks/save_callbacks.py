@@ -61,9 +61,10 @@ def register_save_modifications():
         State("annotations-to-save-checkboxes", "value"),
         State("annotation-store", "data"),
         State("bad-channels-to-save-checkboxes", "value"),
+        State("csv-filename-input", "value"),
     )
     def _save_modifications(
-        n_clicks, data_path, format, annotations_to_save, annotations, bad_channels
+        n_clicks, data_path, format, annotations_to_save, annotations, bad_channels, csv_filename
     ):
         """
         Export modified annotations and bad channel metadata to disk.
@@ -124,15 +125,9 @@ def register_save_modifications():
 
                     df = pd.DataFrame(rows)
 
-                    if is_fif:
-                        fname = data_path.rstrip(".fif") + "_annotations.csv"
-                    elif is_ds:
-                        fname = data_path.rstrip(".ds") + "_annotations.csv"
-                    elif is_dir:
-                        fname = os.path.join(
-                            os.path.dirname(data_path),
-                            os.path.basename(data_path) + "_annotations.csv",
-                        )
+                    csv_name = (csv_filename or "annotations").strip() or "annotations"
+                    if is_fif or is_ds or is_dir:
+                        fname = os.path.join(os.path.dirname(data_path), f"{csv_name}.csv")
                     else:
                         return "⚠️ Error: Unsupported folder path format."
 
@@ -191,3 +186,13 @@ def register_save_modifications():
                 return f"⚠️ Error saving the file: {str(e)}"
 
         return dash.no_update
+
+def register_csv_name():
+    @callback(
+        Output("csv-filename-div", "style"),
+        Input("saving-format-radio", "value"),
+    )
+    def toggle_csv_filename_div(format_value):
+        if format_value == "csv":
+            return {"marginBottom": "20px", "display": "block"}
+        return {"marginBottom": "20px", "display": "none"}

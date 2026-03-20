@@ -1,7 +1,7 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 
-from layout.config_layout import BOX_STYLES, BUTTON_STYLES, LABEL_STYLES
+from layout.config_layout import BOX_STYLES, BUTTON_STYLES, LABEL_STYLES, INPUT_STYLES
 
 
 def create_save():
@@ -106,6 +106,38 @@ def create_save():
                                     "display": "block",
                                     "margin-bottom": "0.5em",
                                 },
+                            ),
+                            html.Div(
+                                [
+                                    html.Label(
+                                        html.Span(
+                                            [
+                                                "CSV Filename: ",
+                                                html.I(
+                                                    className="bi bi-info-circle-fill",
+                                                    id="help-csv-filename",
+                                                ),
+                                            ]
+                                        ),
+                                        style={**LABEL_STYLES["classic"]},
+                                    ),
+                                    dbc.Input(
+                                        id="csv-filename-input",
+                                        type="text",
+                                        placeholder="e.g. annotations_session1",
+                                        debounce=True,
+                                        style=INPUT_STYLES["small-number"],
+                                    ),
+                                    dbc.Tooltip(
+                                        "Name used when saving the annotation CSV file.\n"
+                                        "The .csv extension will be appended automatically.",
+                                        target="help-csv-filename",
+                                        placement="left",
+                                        class_name="custom-tooltip",
+                                    ),
+                                ],
+                                id="csv-filename-div",
+                                style={"marginBottom": "20px", "display": "none"},
                             ),
                             dbc.Tooltip(
                                 """

@@ -69,6 +69,7 @@ from callbacks.save_callbacks import (
     register_display_annotations_to_save_checkboxes,
     register_display_bad_channels_to_save_checkboxes,
     register_save_modifications,
+    register_csv_name
 )
 
 # --- Predict ---
@@ -370,6 +371,7 @@ register_smoothgrad_threshold()
 # --- Save ---
 register_display_bad_channels_to_save_checkboxes()
 register_save_modifications()
+register_csv_name()
 
 # --- Analysis ---
 register_callbacks_sensivity_analysis()
