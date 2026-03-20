@@ -6,10 +6,21 @@ git clone https://github.com/agnesgrd/DeepEpiX.git
 ```
 
 Build and run the Docker container with your local data directory:
+
+- For non Macos users
+
 ```bash
 cd DeepEpiX
 docker build -t deepepix-app .
 docker run -p 8050:8050 -v /home/user/DeepEpiX/data:/DeepEpiX/data deepepix-app # Modify this to point your local data path
+```
+
+- For Macos users
+
+```bash
+cd DeepEpiX
+docker build --build-arg PLATFORM=macos -t deepepix-mac .
+docker run -p 8050:8050 -v /home/user/DeepEpiX/data:/DeepEpiX/data deepepix-mac # Modify this to point your local data path
 ```
 
 Example of windows path to point to your data directory:
