@@ -108,6 +108,7 @@ static/model_config.json
 ```
 
 This will be use when making inference using the "same as training" configuration.
+
 ---
 
 ## ✅ Checklist Before Running
