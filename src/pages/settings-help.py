@@ -6,7 +6,7 @@ dash.register_page(__name__, name="Help", path="/settings/help")
 layout = html.Div(
     [
         html.Iframe(
-            src="https://romquentin.github.io/deepepix-docs/",
+            src="https://jcoudray.github.io/deepepix-docs/",
             style={"width": "100%", "height": "1600px", "border": "none"},
         )
     ]
