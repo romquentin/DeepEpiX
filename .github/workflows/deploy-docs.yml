@@ -3,7 +3,7 @@ name: Deploy MkDocs to Public Repo
 on:
   push:
     branches:
-      - main # or your default branch
+      - EEG-integration # or your default branch
   workflow_dispatch:
 
 jobs:
