@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main # or your default branch
-
+  workflow_dispatch:
+  
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -28,11 +29,12 @@ jobs:
       - name: Deploy to public repo
         run: |
           cd docs/site
+          touch .nojekyll
           git init
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add .
           git commit -m "Deploy docs"
           git branch -M main
-          git remote add origin https://x-access-token:${{ secrets.DOCS_DEPLOY_KEY }}@github.com/agnesgrd/deepepix-docs.git
+          git remote add origin https://x-access-token:${{ secrets.DEEPEPIX_DEPLOY_KEY }}@github.com/romquentin/deepepix-docs.git
           git push -f origin main

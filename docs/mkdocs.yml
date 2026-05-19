@@ -1,5 +1,5 @@
 site_name: DeepEpiX
-repo_url: https://github.com/agnesgrd/DeepEpiX
+repo_url: https://github.com/romquentin/DeepEpiX
 theme:
   name: material
   features:
