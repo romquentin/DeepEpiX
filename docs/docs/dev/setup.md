@@ -2,7 +2,7 @@
 
 1. **Clone the Repository in your working directory:**
 ```bash
-git clone https://github.com/romquentin/DeepEpiX.git
+git clone https://github.com/mel-eduwell-lab/DeepEpiX.git
 ```
 
 2. **Set up the Dash Environment:**

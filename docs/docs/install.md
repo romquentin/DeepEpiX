@@ -2,7 +2,7 @@
 
 Clone the repository in your working directory:
 ```bash
-git clone https://github.com/romquentin/DeepEpiX.git
+git clone https://github.com/mel-eduwell-lab/DeepEpiX.git
 ```
 
 Build and run the Docker container with your local data directory:

@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Checkout private repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
@@ -25,6 +25,13 @@ jobs:
 
       - name: Build docs
         run: mkdocs build --clean --config-file docs/mkdocs.yml
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DOCS_DEPLOY_KEY_BIS }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
 
       - name: Deploy to public repo
         run: |
@@ -36,5 +43,5 @@ jobs:
           git add .
           git commit -m "Deploy docs"
           git branch -M main
-          git remote add origin https://x-access-token:${{ secrets.DEEPEPIX_DEPLOY_KEY }}@github.com/romquentin/deepepix-docs.git
-          git push -f origin main
+          git remote add origin git@github.com:MEL-Eduwell-lab/deepepix-docs.git
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key" git push -f origin main

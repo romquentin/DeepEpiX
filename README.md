@@ -1,6 +1,6 @@
 <!-- PROJECT LOGO -->
 <div align="center">
-  <a href="https://github.com/romquentin/DeepEpiX">
+  <a href="https://github.com/mel-eduwell-lab/DeepEpiX">
     <img src="https://github.com/user-attachments/assets/bbe75d9c-204c-4890-8a9b-f8d5131b0032" alt="Logo" width="100" />
   </a>
 </div>
@@ -11,11 +11,11 @@
   <p align="center">
     Software for annotation and automatic spike detection in MEG recordings
     <br />
-    <a href="https://romquentin.github.io/deepepix-docs/">Explore the docs</a>
+    <a href="https://mel-eduwell-lab.github.io/deepepix-docs/">Explore the docs</a>
     &middot;
-    <a href="https://github.com/romquentin/DeepEpiX/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
+    <a href="https://github.com/mel-eduwell-lab/DeepEpiX/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
     &middot;
-    <a href="https://github.com/romquentin/DeepEpiX/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
+    <a href="https://github.com/mel-eduwell-lab/DeepEpiX/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
   </p>
 </div>
 
@@ -38,7 +38,7 @@ This software is designed for clinicians to annotate raw MEG data and run predic
 <!-- GETTING STARTED -->
 ## Getting Started
 
-Full installation and usage instructions are available here: [DeepEpiX Documentation](https://romquentin.github.io/deepepix-docs/)
+Full installation and usage instructions are available here: [DeepEpiX Documentation](https://mel-eduwell-lab.github.io/deepepix-docs/)
 
 ## License
 This project is distributed under the DeepEpiX License (research-use only). See LICENSE for details.
